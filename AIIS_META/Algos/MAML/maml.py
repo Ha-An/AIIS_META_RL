@@ -10,7 +10,7 @@ from torch.utils.tensorboard import SummaryWriter
 from .base import MAML_BASE
 
 
-class ProMP(MAML_BASE):
+class VPG_MAML(MAML_BASE):
     """
     Proximal Meta-Policy Search (PyTorch)
       - Inner:  -(ratio * A).mean()
@@ -30,7 +30,6 @@ class ProMP(MAML_BASE):
                  rollout_per_task: int = 5,     # Sampled paths from one task
                  outer_iters: int = 5,      # Outer learning steps
                  parallel: bool = False,        # Multi-processing Factor
-                 clip_eps: float = 0.2,     # Clip epsilon for Promp
                  target_kl_diff: float = 0.01,      # Target KL
                  init_inner_kl_penalty: float = 5e-4,       # Start KL-Penalty (η)
                  adaptive_inner_kl_penalty: bool = False,       # Use KL-Penalty adaptive
@@ -43,12 +42,10 @@ class ProMP(MAML_BASE):
         super().__init__(
             env, max_path_length, agent, optimizer, tensor_log, baseline,
             inner_grad_steps, num_tasks, rollout_per_task,
-            outer_iters, parallel, clip_eps=clip_eps,
-            init_inner_kl_penalty = init_inner_kl_penalty,
+            outer_iters, parallel,
             discount=discount, gae_lambda=gae_lambda,
             normalize_adv=normalize_adv, device=device
         )
-        self.clip_eps = float(clip_eps)
         self.target_kl_diff = float(target_kl_diff)
         self.adaptive_inner_kl_penalty = bool(adaptive_inner_kl_penalty)
         self.anneal_factor = float(anneal_factor)
@@ -71,9 +68,7 @@ class ProMP(MAML_BASE):
     def _surrogate(self,
                    logp_new: torch.Tensor,
                    logp_old: torch.Tensor,
-                   advs: torch.Tensor,
-                   *,
-                   clip: bool = False) -> torch.Tensor:
+                   advs: torch.Tensor) -> torch.Tensor:
         """
         logp_*: [...], 액션 차원까지 합쳐진 샘플별 log-prob 형태를 가정
         advs  : [...] (샘플별 advantage)
@@ -89,24 +84,11 @@ class ProMP(MAML_BASE):
         # 분모(old)와 adv는 stop-grad
         logp_old = logp_old.detach()
         advs = advs.detach()
-        # 입실론 세팅
-        eps = self.clip_eps * self.anneal_coeff
+
         #delta = (logp_new - logp_old).clamp(-20.0, 20.0)   # 수치 안전
         delta = (logp_new - logp_old)
         ratio = torch.exp(delta)
-
-        # If Need clipping
-        if clip:
-            # Clipping
-            r_clip = ratio.clamp(1.0 - eps, 1.0 + eps)
-            term_pos = torch.minimum(ratio, r_clip) * advs
-            term_neg = torch.maximum(ratio, r_clip) * advs
-            term = torch.where(advs >= 0, term_pos, term_neg)
-            surr_loss = -term.mean()
-
-        # Do not need clipping
-        else:
-            surr_loss = -(ratio * advs).mean()
+        surr_loss = -(ratio * advs).mean()
 
         return surr_loss
 
@@ -137,8 +119,7 @@ class ProMP(MAML_BASE):
             logp_new = new_agent.get_outer_log_probs(obs, actions) # Cal log_probabilty
             surrs.append(self._surrogate(logp_new=logp_new,
                                          logp_old=logp_old,
-                                         advs=adv,
-                                         clip=False))
+                                         advs=adv))
         return torch.stack(surrs).mean()
 
     # ---------- Outer objective ----------
@@ -161,8 +142,7 @@ class ProMP(MAML_BASE):
 
             surrs.append(self._surrogate(logp_new=logp_new,
                                          logp_old=logp_old,
-                                         advs=adv,
-                                         clip=True))
+                                         advs=adv))
             kl_list.append(self._kl_from_logps(logp_old, logp_new))
 
         surr_loss = torch.stack(surrs).mean()
@@ -192,6 +172,7 @@ class ProMP(MAML_BASE):
         inner_kls_per_step = torch.zeros(self.inner_grad_steps,
                                          dtype=torch.float32,
                                          device=self.device)
+
         for step in range(self.inner_grad_steps + 1):
             if step == self.inner_grad_steps:
                 # post-update 수집
@@ -232,7 +213,7 @@ class ProMP(MAML_BASE):
                         obs = self._to_tensor(batch["observations"][ridx], dev, torch.float32)
                         acts = self._to_tensor(batch["actions"][ridx], dev, torch.float32)
                         logp_old = torch.stack(batch["agent_infos"][ridx]["logp"]).detach()
-                        logp_new = adapted_agents[task_id].get_outer_log_probs(obs, acts)
+                        logp_new = adapted_agents[task_id].get_outer_actions(obs, acts)
                         kls_this_task.append(self._kl_from_logps(logp_old, logp_new))
                     step_kls.append(torch.stack(kls_this_task).mean())
 

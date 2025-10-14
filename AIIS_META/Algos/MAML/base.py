@@ -22,8 +22,6 @@ class MAML_BASE(nn.Module):
                  optimizer,
                  tensor_log,
                  baseline = None,
-                 alpha: float = 0.02,     # inner lr
-                 beta: float = 1e-3,      # outer lr
                  inner_grad_steps: int = 1,
                  num_tasks: int = 4,
                  rollout_per_task: int = 5,
@@ -39,8 +37,6 @@ class MAML_BASE(nn.Module):
         self.optimizer = optimizer
         self.env = env
         self.agent = agent
-        self.alpha = alpha
-        self.beta = beta
         self.inner_grad_steps = inner_grad_steps
         self.num_tasks = num_tasks
         self.outer_iters = outer_iters
@@ -122,7 +118,3 @@ class MAML_BASE(nn.Module):
         self.optimizer.zero_grad(set_to_none=True)
         loss_out.backward(retain_graph = False)                 # retain_graph=False (기본)
         self.optimizer.step()
-    
-        # (선택) 평균 내기: 필요 시
-        # for name in grad_accumulator:
-        #     grad_accumulator[name] /= len(grads)

@@ -104,7 +104,7 @@ class SampleProcessor(object):
 
         # 1) compute discounted rewards (returns)
         for idx, path in enumerate(paths):
-            path["returns"] = utils.discount_cumsum(path["rewards"], self.discount)
+            path["returns"] = utils.discount_cumsum(path["rewards"], self.discount, device=self.device)
 
         # 2) fit baseline estimator using the path returns and predict the return baselines
         self.baseline.fit(paths, target_key="returns")
@@ -155,6 +155,6 @@ class SampleProcessor(object):
                      self.discount * path_baselines[1:] - \
                      path_baselines[:-1]
             path["advantages"] = utils.discount_cumsum(
-                deltas, self.discount * self.gae_lambda)
+                deltas, self.discount * self.gae_lambda, device=self.device)
 
         return paths

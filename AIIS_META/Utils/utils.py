@@ -6,7 +6,7 @@ import torch
 from typing import Dict, List, Tuple, Optional
 device = torch.device("cpu")
 
-def to_tensor(x):
+def to_tensor(x, device):
         if isinstance(x, torch.Tensor):
             return x.to(device)
         import numpy as np
@@ -15,14 +15,14 @@ def to_tensor(x):
         return torch.as_tensor(x, device=device)
 
 
-def discount_cumsum(rewards, discount):
+def discount_cumsum(rewards, discount, device):
     if type(rewards[0]) != torch.tensor:
-        rewards[0] = to_tensor(rewards[0])
+        rewards[0] = to_tensor(rewards[0], device=device)
 
     returns = [rewards[-1]]
     for i in range(1, len(rewards)):
         if type(rewards[-i]) != torch.tensor:
-            rewards[-i-1] = to_tensor(rewards[-i-1])
+            rewards[-i-1] = to_tensor(rewards[-i-1], device=device)
         returns.append(returns[-1]*discount + rewards[-i-1])
     
     returns.reverse()

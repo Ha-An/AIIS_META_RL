@@ -70,6 +70,7 @@ class GaussianAgent(BaseAgent): # mlp를 Agent로 변경해야함
         mean = self.mlp(obs)
         log_std = torch.clamp(self.log_std, min=self.min_log_std)
         
+        # 발산 제어 코드
         mean = torch.nan_to_num(mean, nan=0.0, posinf=1e6, neginf=-1e6)
         log_std  = torch.nan_to_num(log_std,  nan=1.0, posinf=1e2, neginf=1e-6)
 
@@ -79,8 +80,8 @@ class GaussianAgent(BaseAgent): # mlp를 Agent로 변경해야함
 
         std = log_std.exp()
 
-        std = to_tensor(std)
-        mean = to_tensor(mean)
+        std = to_tensor(std, device = device)
+        mean = to_tensor(mean, device = device)
         base = Normal(mean, std)
         return Independent(base, 1)
     # ---------------- act ----------------

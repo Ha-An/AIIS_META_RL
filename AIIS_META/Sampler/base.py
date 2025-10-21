@@ -108,7 +108,7 @@ class SampleProcessor(object):
 
         # 2) fit baseline estimator using the path returns and predict the return baselines
         self.baseline.fit(paths, target_key="returns")
-        all_path_baselines = [self.baseline.predict(path,self.device) for path in paths]
+        all_path_baselines = [self.baseline.predict(path) for path in paths]
 
         paths = self._compute_advantages(paths, all_path_baselines)
         

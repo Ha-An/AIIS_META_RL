@@ -15,7 +15,7 @@ def main(params):
                        np.prod(env.action_space.shape),
                     hidden_layers = params["Layers"])
     
-    agent = MetaGaussianAgent(mlp = mlp, num_tasks=params["num_task"], optimizer=optim.Adam(mlp.parameters(), lr = params["alpha"]))
+    agent = MetaGaussianAgent(mlp = mlp, num_tasks=params["num_task"], learn_std = False,optimizer=optim.Adam(mlp.parameters(), lr = params["alpha"]))
     
     meta_algo = ProMP(env = env, max_path_length = params["max_path_length"],
                     agent = agent, optimizer=optim.Adam(mlp.parameters(), lr = params["beta"]),

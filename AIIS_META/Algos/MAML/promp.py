@@ -72,7 +72,6 @@ class ProMP(MAML_BASE):
                    logp_new: torch.Tensor,
                    logp_old: torch.Tensor,
                    advs: torch.Tensor,
-                   *,
                    clip: bool = False) -> torch.Tensor:
         """
         logp_*: [...], 액션 차원까지 합쳐진 샘플별 log-prob 형태를 가정
@@ -97,12 +96,7 @@ class ProMP(MAML_BASE):
 
         # If Need clipping
         if clip:
-            # Clipping
-            r_clip = ratio.clamp(1.0 - eps, 1.0 + eps)
-            term_pos = torch.minimum(ratio, r_clip) * advs
-            term_neg = torch.maximum(ratio, r_clip) * advs
-            term = torch.where(advs >= 0, term_pos, term_neg)
-            surr_loss = -term.mean()
+            surr_loss = -(ratio.clamp(1-eps, 1+eps)*advs).mean()
 
         # Do not need clipping
         else:
@@ -116,7 +110,7 @@ class ProMP(MAML_BASE):
         """
         KL(old||new) ≈ E_old[ logp_old - logp_new ]
         """
-        return (logp_old.detach() - logp_new).mean()
+        return torch.exp(logp_old - logp_new.detach()).mean()
 
     # ---------- Inner objective ----------
     def inner_obj(self, new_agent, batchs: dict) -> torch.Tensor:

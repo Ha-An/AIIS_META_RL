@@ -6,7 +6,7 @@ from typing import Dict, List, Tuple, Optional, Any
 
 import torch
 from torch.utils.tensorboard import SummaryWriter
-
+import torch.optim as optim
 from .base import MAML_BASE
 
 
@@ -22,7 +22,8 @@ class ProMP(MAML_BASE):
                  env: Any,      #Gym Environment
                  max_path_length: int,      # max path length
                  agent,     # agent nn.Module (get_outer_actions: logp 반환)
-                 optimizer,     # optimizer(Adam etc)
+                 alpha,
+                 beta,
                  baseline,      # baseline(Cal Advantage)
                  tensor_log,        # Tensorboard_log
                  inner_grad_steps: int = 1,     # Inner_gradient_steps(inner adapts)
@@ -32,7 +33,7 @@ class ProMP(MAML_BASE):
                  parallel: bool = False,        # Multi-processing Factor
                  clip_eps: float = 0.2,     # Clip epsilon for Promp
                  target_kl_diff: float = 0.01,      # Target KL
-                 init_inner_kl_penalty: float = 5e-4,       # Start KL-Penalty (η)
+                 init_inner_kl_penalty: float = 1e-2,       # Start KL-Penalty (η)
                  adaptive_inner_kl_penalty: bool = False,       # Use KL-Penalty adaptive
                  anneal_factor: float = 1.0,    # 1.0이면 고정, <1.0이면 점감
                  discount: float = 0.99,        # Gamma
@@ -41,25 +42,26 @@ class ProMP(MAML_BASE):
                  device: Optional[torch.device] = None):
         # initial setting
         super().__init__(
-            env, max_path_length, agent, optimizer, tensor_log, baseline,
+            env, max_path_length, agent, alpha, beta, tensor_log, baseline,
             inner_grad_steps, num_tasks, rollout_per_task,
             outer_iters, parallel, clip_eps=clip_eps,
             init_inner_kl_penalty = init_inner_kl_penalty,
             discount=discount, gae_lambda=gae_lambda,
             normalize_adv=normalize_adv, device=device
         )
+        self.alpha = alpha
         self.clip_eps = float(clip_eps)
         self.target_kl_diff = float(target_kl_diff)
         self.adaptive_inner_kl_penalty = bool(adaptive_inner_kl_penalty)
         self.anneal_factor = float(anneal_factor)
         self.anneal_coeff = 1.0
         self.writer = SummaryWriter(log_dir=tensor_log)
-
         # step별 KL penalty 계수/최근 KL
         self.inner_kl_coeff = torch.full(
             (inner_grad_steps,), float(init_inner_kl_penalty),
             dtype=torch.float32, device=self.device
         )
+        
         self._last_inner_kls = torch.zeros(
             inner_grad_steps, dtype=torch.float32, device=self.device
         )
@@ -110,7 +112,7 @@ class ProMP(MAML_BASE):
         """
         KL(old||new) ≈ E_old[ logp_old - logp_new ]
         """
-        return torch.exp(logp_old - logp_new.detach()).mean()
+        return (logp_old.detach() - logp_new).mean()
 
     # ---------- Inner objective ----------
     def inner_obj(self, new_agent, batchs: dict) -> torch.Tensor:
@@ -151,27 +153,17 @@ class ProMP(MAML_BASE):
             adv = self._to_tensor(batchs["advantages"][idx], dev, torch.float32)
 
             logp_new = self.agent.get_outer_log_probs(obs, actions)
-            logp_old = torch.stack(batchs["agent_infos"][idx]["logp"]).detach()
+            logp_old = torch.stack(batchs["agent_infos"][idx]["logp"])
 
             surrs.append(self._surrogate(logp_new=logp_new,
                                          logp_old=logp_old,
                                          advs=adv,
                                          clip=True))
-            kl_list.append(self._kl_from_logps(logp_old, logp_new))
 
-        surr_loss = torch.stack(surrs).mean()
-        avg_kls = torch.stack(kl_list).mean()
-
-        # 최근 KL(로깅/적응용)
-        self._last_inner_kls = avg_kls.detach().unsqueeze(0)
-
-        # KL penalty 계수(스칼라)
-        outer_kl_coeff = (self.inner_kl_coeff.mean()
-                          if self.inner_kl_coeff.numel() > 0
-                          else torch.tensor(0.0, device=dev))
+        surr_loss = torch.stack(surrs).mean() 
 
         # KL은 페널티이므로 + 로 더한다
-        return surr_loss + outer_kl_coeff * avg_kls
+        return surr_loss + self._last_inner_kls 
 
     # ---------- Inner loop (태스크별 적응 + KL 모니터링/anneal) ----------
     def inner_loop(self,
@@ -209,12 +201,13 @@ class ProMP(MAML_BASE):
 
                 # 3) 태스크별 inner 업데이트 + 이번 step KL 측정
                 for task_id in range(self.num_tasks):
+                    inner_optimizer = optim.Adam(self.dummy_agents[task_id].parameters(), lr = self.alpha)
                     batch = last_paths[task_id]
                     # (a) 현재 파라미터 로드 후 inner loss/grad
                     loss_in = self.inner_obj(self.dummy_agents[task_id], batch)
-                    adapted_agents[task_id].optimizer.zero_grad()
+                    inner_optimizer.zero_grad()
                     loss_in.backward()
-                    adapted_agents[task_id].optimizer.step()
+                    inner_optimizer.step()
 
                 # (c) KL(old||new) 측정: old=수집 당시 logp, new=업데이트된 파라미터로 재평가
                 with torch.no_grad():

@@ -4,7 +4,7 @@ import torch.nn as nn
 from typing import Dict, List, Tuple, Optional
 import copy
 from contextlib import contextmanager
-
+import torch.optim as optim
 from AIIS_META.Sampler.meta_sampler import MetaSampler as sampler
 from AIIS_META.Sampler.meta_sample_processor import MetaSampleProcessor
 from torch.utils.tensorboard import SummaryWriter
@@ -19,7 +19,8 @@ class MAML_BASE(nn.Module):
                  env,
                  max_path_length,
                  agent,
-                 optimizer,
+                 alpha,
+                 beta,
                  tensor_log,
                  baseline = None,
                  inner_grad_steps: int = 1,
@@ -34,9 +35,9 @@ class MAML_BASE(nn.Module):
                  normalize_adv = True,
                  device = torch.device('cuda')):
         super().__init__()
-        self.optimizer = optimizer
-        self.env = env
         self.agent = agent
+        self.optimizer = optim.Adam(self.agent.parameters(), lr = beta)
+        self.env = env
         self.inner_grad_steps = inner_grad_steps
         self.num_tasks = num_tasks
         self.outer_iters = outer_iters
@@ -114,7 +115,7 @@ class MAML_BASE(nn.Module):
             loss_outs.append(self.outer_obj(batch))
         
         # (a) 현재 파라미터 로드 후 inner loss/grad
-        loss_out = sum(loss_outs)/len(loss_outs)
+        loss_out = sum(loss_outs)
         self.optimizer.zero_grad(set_to_none=True)
         loss_out.backward(retain_graph = False)                 # retain_graph=False (기본)
         self.optimizer.step()

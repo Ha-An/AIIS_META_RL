@@ -4,6 +4,7 @@ from torch.distributions.independent import Independent
 from typing import List, Dict, Optional, Tuple
 from AIIS_META.Utils.utils import *
 from .Gaussian import GaussianAgent  # 기존 구현 사용
+import torch.optim as optim
 
 class MetaGaussianAgent(GaussianAgent):
     def __init__(self, num_tasks: int, *args, **kwargs):

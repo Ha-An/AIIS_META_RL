@@ -27,13 +27,11 @@ class BaseAgent(nn.Module):
 
   def __init__(self,
                mlp,
-               optimizer,
                 gamma: float = 0.99,
                 has_value_fn: bool = False,
                 need_probs: bool = False):
       super().__init__()
       self.mlp = mlp
-      self.optimizer = optimizer
       self.gamma = gamma
       self.has_value_fn = has_value_fn  # [NEW]
 

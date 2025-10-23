@@ -29,22 +29,19 @@ class GaussianAgent(BaseAgent): # mlp를 Agent로 변경해야함
     """
     def __init__(self,
                  mlp,
-                 optimizer,
                  gamma: float = 0.99,
                  learn_std: bool = True,
                  init_std: float = 1.0,
                  min_std: float = 1e-6,
                  state_dependent_std: bool = False,
                  has_value_fn: bool = False):
-        super().__init__(mlp,
-                         optimizer,gamma,
+        super().__init__(mlp,gamma,
                          has_value_fn=has_value_fn)
 
         self.mlp = mlp
         self.gamma = gamma
         self.state_dependent_std = bool(state_dependent_std)
         self.min_log_std = float(torch.log(torch.tensor(min_std)))
-        self.optimizer = optimizer
         # state-independent log_std param (only used if not state_dependent_std)
         init_log_std = float(torch.log(torch.tensor(init_std)))
         if not self.state_dependent_std:

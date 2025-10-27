@@ -154,7 +154,7 @@ class ProMP(MAML_BASE):
 
         # [변경!] adapted_agent 모듈 호출을 functional 'log_prob' 호출로 변경
         # logp_new = adapted_agent.get_outer_log_probs(obs, acts) # [변경 전]
-        logp_new = self.agent.log_prob(obs, acts, params=adapted_params) # [변경 후]
+        logp_new = self.agent.log_prob(obs, acts, params=adapted_params, post_update = True) # [변경 후]
 
         surr = self._surrogate(logp_new=logp_new,
                                logp_old=logp_old,
@@ -164,8 +164,8 @@ class ProMP(MAML_BASE):
         # [변경!] self.old_agent (모듈) -> self.old_params (딕셔너리) 사용
         # kl_term_logp_old = self.old_agent.get_outer_log_probs(obs,acts) # [변경 전]
         with torch.no_grad(): # KL 계산시 old_params 쪽으로는 그래디언트 불필요
-            kl_term_logp_old = self.agent.log_prob(obs, acts, params=self.old_params).detach() # [변경 후]
-            
+            #kl_term_logp_old = self.agent.log_prob(obs, acts, params=self.old_params).detach() # [변경 후]
+            kl_term_logp_old = self.old_agent.log_prob(obs, acts, params=self.old_params).detach() # [변경 후]
         return surr + self.inner_kl_coeff * self._kl_from_logps(kl_term_logp_old, logp_new).mean()
 
     

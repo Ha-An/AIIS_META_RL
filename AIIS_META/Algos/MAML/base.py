@@ -64,7 +64,7 @@ class MAML_BASE(nn.Module):
         """예: -(ratio * adv).mean()  (최소화 기준)"""
         raise NotImplementedError
 
-    def outer_obj(self, batch: dict, params: Dict[str, torch.Tensor]) -> torch.Tensor:
+    def outer_obj(self, params: Dict[str, torch.Tensor],  batch: dict) -> torch.Tensor:
         """예: PPO-clip + (필요 시) KL penalty 포함 (최소화 기준)"""
         raise NotImplementedError
 
@@ -96,6 +96,25 @@ class MAML_BASE(nn.Module):
         if isinstance(x, torch.Tensor):
             return x.to(device=device, dtype=dtype)
         return torch.as_tensor(x, device=device, dtype=dtype)
+    
+    def theta_prime(self, batch):
+        adapted_agent = copy.deepcopy(self.agent)
+        surr = self.inner_obj(batch)
+        # (c) 그 파라미터들에 대한 grad 계산 (Outer에서 접근 가능해야 하기 때문에 Create_Graph True)
+        grads = torch.autograd.grad(
+            surr,
+            self.agent.parameters(),
+            create_graph=True,
+            allow_unused=False
+        )
+        for (name, p), g in zip(adapted_agent.named_parameters(), grads):
+            if g is None:
+                continue
+            step = self.inner_step_sizes[self._safe_key(name)]
+            # θ' = θ - α_i ⊙ ∇θ  (ProMP inner update)
+            p = p -step * g
+
+        return adapted_agent
     # -------------------- 학습 루프(오케스트레이션) --------------------
     def learn(self, epochs: int):
         """
@@ -105,48 +124,30 @@ class MAML_BASE(nn.Module):
         self._create_step_size_tensors()
         for epoch in range(epochs):
             self.sampler.update_tasks()
-            base_sd = copy.deepcopy(self.agent.state_dict())
-            self.adapted_agents, paths = self.inner_loop(base_state_dict=base_sd)
+            adapted_agents, paths = self.inner_loop(epoch)
             print("Outer Learning Start")
-            self.outer_loop(paths)
-            reward, cost_dict, _ = self.env.report_scalar(paths)
-            self.writer.add_scalar("Reward", reward, global_step=epoch)
-            self.writer.add_scalars("Costs",cost_dict, global_step=epoch)
-            print("="*15,f"Epochs {epoch}/{epochs}", "="*15)
-            print(f"Rewards: {reward}")
-
+            self.outer_loop(paths,adapted_agents)
+   
     # -------------------- inner / outer --------------------
     def inner_loop(self,
                    ) -> Tuple[List[Dict[str, torch.Tensor]], List]:
         
         raise NotImplementedError
+    
     def outer_loop(self,
-                   paths):  # inner_loop에서 마지막으로 수집된 경로(또는 새로 수집 가능)):
-        """
-        FO-MAML: 각 태스크의 적응 파라미터에서 outer loss의 grad를 계산하고,
-        그 grad를 meta-parameter에 그대로 적용(평균)한다.
-        """
-        # 필요 시: 새 데이터로 outer 수집하고 싶다면 아래 한 줄로 대체 가능
-        # 3) 태스크별 inner 업데이트 + 이번 step KL 측정
-        for step in range(self.outer_iters):
+                   paths, adapted_agents):  # inner_loop에서 마지막으로 수집된 경로(또는 새로 수집 가능)):
+        for itr in range(self.outer_iters):
+            loss_outs = []
             for task_id in range(self.num_tasks):
                 batch = paths[task_id]
-
-                # 2) task별 outer loss
-                loss_out = self.outer_obj(batch, self.adapted_agents[task_id])
-        
-            # (c) 그 파라미터들에 대한 grad 계산 (Outer에서 접근 가능해야 하기 때문에 Create_Graph True)
-            grads = torch.autograd.grad(
-                loss_out,
-                self.adapted_agents[task_id].parameters(),
-                create_graph=False,
-                retain_graph=True,
-                allow_unused=True
-            )
-            # (d) 한 스텝 업데이트: θ' = θ + α * ∇θ (pseudo-code Line 8)
-            with torch.no_grad():
-                for (name, p), g in zip(self.agent.named_parameters(), grads):
-                    if g is None:
-                        continue
-                    # θ' = θ - α_i ⊙
-                    p.add_(-self.beta * g)
+                if itr !=0:
+                    adapted_agents[task_id] = self.theta_prime(batch)
+                else:
+                    pass
+                loss_outs.append(self.outer_obj(adapted_agents[task_id], batch))
+            mean_loss_out = sum(loss_outs)/len(loss_outs)
+            # 2) meta-파라미터 기준으로 grad 계산 (create_graph=False, retain_graph=False)
+            #    ※ meta 그라디언트를 원하면 inputs는 self.agent.parameters() 여야 합니다.
+            self.optimizer.zero_grad()
+            mean_loss_out.backward()
+            self.optimizer.step()

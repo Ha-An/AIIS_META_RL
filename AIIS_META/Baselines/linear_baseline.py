@@ -1,8 +1,4 @@
-from .base import Baseline
-import numpy as np
-import torch
-import sys
-import pandas as pd
+from AIIS_META.Baselines.base import Baseline
 import numpy as np
 
 
@@ -33,16 +29,7 @@ class LinearBaseline(Baseline):
         """
         if self._coeffs is None:
             return np.zeros(len(path["observations"]))
-        # self._coeffs가 numpy array인 경우
-        finite_mask = np.isfinite(self._coeffs)
 
-        # 전체 중 하나라도 비유한 값(NaN, inf, -inf)이 있으면 종료
-        if not np.all(finite_mask):
-            print("[Error] Non-finite value detected in coeffs:",
-                f"nan={np.isnan(self._coeffs).sum()}",
-                f"+inf={np.isposinf(self._coeffs).sum()}",
-                f"-inf={np.isneginf(self._coeffs).sum()}")
-            sys.exit()
         return self._features(path).dot(self._coeffs)
 
     def get_param_values(self, **tags):
@@ -78,6 +65,7 @@ class LinearBaseline(Baseline):
 
         featmat = np.concatenate([self._features(path) for path in paths], axis=0)
         target = np.concatenate([path[target_key] for path in paths], axis=0)
+
         reg_coeff = self._reg_coeff
         for _ in range(5):
             self._coeffs = np.linalg.lstsq(

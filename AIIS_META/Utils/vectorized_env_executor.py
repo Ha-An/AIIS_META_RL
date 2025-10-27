@@ -3,6 +3,11 @@ import pickle as pickle
 from multiprocessing import Process, Pipe
 import copy
 
+import numpy as np
+import pickle as pickle
+from multiprocessing import Process, Pipe
+import copy
+
 
 class MetaIterativeEnvExecutor(object):
     """
@@ -34,8 +39,8 @@ class MetaIterativeEnvExecutor(object):
              env_infos (dict). Each list is of length meta_batch_size x envs_per_task
              (assumes that every task has same number of envs)
         """
-
         assert len(actions) == self.num_envs
+
         all_results = [env.step(a) for (a, env) in zip(actions, self.envs)]
 
         # stack results split to obs, rewards, ...
@@ -154,7 +159,7 @@ class MetaParallelEnvExecutor(object):
             remote.send(('reset', None))
         return sum([remote.recv() for remote in self.remotes], [])
 
-    def set_tasks(self, tasks):
+    def set_tasks(self, tasks=None):
         """
         Sets a list of tasks to each worker
 

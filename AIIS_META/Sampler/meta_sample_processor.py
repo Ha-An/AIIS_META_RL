@@ -1,7 +1,6 @@
 from AIIS_META.Sampler.base import SampleProcessor
 from AIIS_META.Utils import utils
 import numpy as np
-import torch
 class MetaSampleProcessor(SampleProcessor):
 
     def process_samples(self, paths_meta_batch, log=False, log_prefix=''):
@@ -22,35 +21,24 @@ class MetaSampleProcessor(SampleProcessor):
             (list of dicts) : Processed sample data among the meta-batch; size: [meta_batch_size] x [7] x (batch_size x max_path_length)
         """
         assert isinstance(paths_meta_batch, dict), 'paths must be a dict'
+        assert self.baseline, 'baseline must be specified'
+
         samples_data_meta_batch = []
         all_paths = []
+
         for meta_task, paths in paths_meta_batch.items():
             # fits baseline, compute advantages and stack path data
             samples_data, paths = self._compute_samples_data(paths)
 
             samples_data_meta_batch.append(samples_data)
             all_paths.extend(paths)
-        
 
-        '''E-MAML, 나중에 개발
-        temp_overall_mean = []
-        temp_overall_mstd = 
-        for samples_data in samples_data_meta_batch:
-            for rewards in samples_data['rewards']:
-                    temp_overall_lst.append(torch.mean(torch.stack(rewards)))
-
-        temp_overall_lst = torch.stack(temp_overall_lst)
         # 7) compute normalized trajectory-batch rewards (for E-MAML)
-        overall_avg_reward = torch.mean(temp_overall_lst)
-        overall_avg_reward_std = torch.std(temp_overall_lst)
-        print(overall_avg_reward, overall_avg_reward_std)
+        overall_avg_reward = np.mean(np.concatenate([samples_data['rewards'] for samples_data in samples_data_meta_batch]))
+        overall_avg_reward_std = np.std(np.concatenate([samples_data['rewards'] for samples_data in samples_data_meta_batch]))
+
         for samples_data in samples_data_meta_batch:
             samples_data['adj_avg_rewards'] = (samples_data['rewards'] - overall_avg_reward) / (overall_avg_reward_std + 1e-8)
 
-        # 8) log statistics if desired
-        self._log_path_stats(all_paths, log=log, log_prefix=log_prefix)
-        '''
-   
+
         return samples_data_meta_batch
-    
-    

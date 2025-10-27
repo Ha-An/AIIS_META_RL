@@ -15,7 +15,7 @@ from torch.func import functional_call
 from typing import Sequence, Type, List, Dict, Optional, Tuple, Callable
 from AIIS_META.Utils.utils import *
 from AIIS_META.Agents.base import BaseAgent  # 사용 중인 base 인터페이스에 맞춰져 있어야 함
-
+import time
 class GaussianAgent(BaseAgent): # mlp를 Agent로 변경해야함
     """
     out_dim 기준의 단일-head diagonal Gaussian policy.
@@ -41,20 +41,13 @@ class GaussianAgent(BaseAgent): # mlp를 Agent로 변경해야함
         self.mlp = mlp
         self.gamma = gamma
         self.state_dependent_std = bool(state_dependent_std)
-        self.min_log_std = float(torch.log(torch.tensor(min_std)))
+        self.min_log_std = torch.log(torch.tensor(min_std))
         # state-independent log_std param (only used if not state_dependent_std)
         init_log_std = float(torch.log(torch.tensor(init_std)))
-        if not self.state_dependent_std:
-            if learn_std:
-                self.log_std = nn.Parameter(torch.full((self.mlp.output_dim,), init_log_std))
-            else:
-                p = nn.Parameter(torch.full((self.mlp.output_dim,), init_log_std), requires_grad=False)
-                # still register as parameter so it appears in state_dict
-                self.register_parameter("log_std", p)
-                self.log_std = p
-        else:
-            # placeholder for attribute existence (won't be used)
-            self.register_parameter("log_std", None)
+        p = nn.Parameter(torch.full((self.mlp.output_dim,), init_log_std), requires_grad=True)
+        # still register as parameter so it appears in state_dict
+        self.register_parameter("log_std", p)
+        self.log_std = p
 
     # ---------------- build distribution (current params) ----------------
     def distribution(self, obs: torch.Tensor) -> Independent:
@@ -65,13 +58,10 @@ class GaussianAgent(BaseAgent): # mlp를 Agent로 변경해야함
         obs = torch.as_tensor(obs, device=device, dtype=dtype)
 
         mean = self.mlp(obs)
+        #print(mean)
+        #time.sleep(1000)
         log_std = torch.clamp(self.log_std, min=self.min_log_std)
-
-        # expand to batch
-        if mean.dim() == 2:
-            log_std = log_std.unsqueeze(0).expand_as(mean)
-
-        std = log_std.exp()
+        std = torch.max(torch.exp(log_std), torch.exp(self.min_log_std))
 
         std = to_tensor(std, device = device)
         mean = to_tensor(mean, device = device)

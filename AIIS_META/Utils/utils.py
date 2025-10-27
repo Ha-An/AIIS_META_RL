@@ -14,19 +14,30 @@ def to_tensor(x, device):
             x = np.asarray(x)
         return torch.as_tensor(x, device=device)
 
+def normalize_advantages(advantages):
+    """
+    Args:
+        advantages (np.ndarray): np array with the advantages
 
-def discount_cumsum(rewards, discount, device):
-    if type(rewards[0]) != torch.tensor:
-        rewards[0] = to_tensor(rewards[0], device=device)
+    Returns:
+        (np.ndarray): np array with the advantages normalized
+    """
+    return (advantages - np.mean(advantages)) / (advantages.std() + 1e-8)
 
-    returns = [rewards[-1]]
-    for i in range(1, len(rewards)):
-        if type(rewards[-i]) != torch.tensor:
-            rewards[-i-1] = to_tensor(rewards[-i-1], device=device)
-        returns.append(returns[-1]*discount + rewards[-i-1])
-    
-    returns.reverse()
-    return returns
+
+
+def shift_advantages_to_positive(advantages):
+    return (advantages - np.min(advantages)) + 1e-8
+
+
+def discount_cumsum(x, discount):
+    """
+    See https://docs.scipy.org/doc/scipy/reference/tutorial/signal.html#difference-equation-filtering
+
+    Returns:
+        (float) : y[t] - discount*y[t+1] = x[t] or rev(y)[t] - discount*rev(y)[t-1] = rev(x)[t]
+    """
+    return scipy.signal.lfilter([1], [1, float(-discount)], x[::-1], axis=0)[::-1]
 
 def module_device_dtype(module):
     # 1) 파라미터에서 추론
@@ -42,6 +53,40 @@ def module_device_dtype(module):
     # 3) 아무 것도 없으면 기본값
     return torch.device("cpu"), torch.get_default_dtype()
 
+def concat_tensor_dict_list(tensor_dict_list):
+    """
+    Args:
+        tensor_dict_list (list) : list of dicts of lists of tensors
+
+    Returns:
+        (dict) : dict of lists of tensors
+    """
+    keys = list(tensor_dict_list[0].keys())
+    ret = dict()
+    for k in keys:
+        example = tensor_dict_list[0][k]
+        if isinstance(example, dict):
+            v = concat_tensor_dict_list([x[k] for x in tensor_dict_list])
+        else:
+            v = np.concatenate([x[k] for x in tensor_dict_list])
+        ret[k] = v
+    return ret
+def concat_tensor_dict_tensor(tensor_dict_list):
+    """
+    Args:
+        tensor_dict_list (list) : list of dicts of lists of tensors
+
+    Returns:
+        (dict) : dict of lists of tensors
+    """
+    keys = list(tensor_dict_list[0].keys())
+    ret = dict()
+    temp = []
+    for k in keys:
+        for x in tensor_dict_list:
+            temp.extend(x[k])
+        ret[k] = temp
+    return ret
 def stack_tensor_dict_list(tensor_dict_list):
     """
     Args:
@@ -57,28 +102,28 @@ def stack_tensor_dict_list(tensor_dict_list):
         if isinstance(example, dict):
             v = stack_tensor_dict_list([x[k] for x in tensor_dict_list])
         else:
-            v = [[x[k] for x in tensor_dict_list]]
-        ret[k] = v[0]
+            v = np.asarray([x[k] for x in tensor_dict_list])
+        ret[k] = v
     return ret
 
-def normalize_advantages(advantages):
+def stack_tensor_dict_torch(tensor_dict_list):
     """
     Args:
-        advantages (list[float]): list of advantages
+        tensor_dict_list (list) : list of dicts of tensors
 
     Returns:
-        list[float]: normalized advantages
+        (dict) : dict of lists of tensors
     """
-
-    n = len(advantages[0])*len(advantages)
-    if n == 0:
-        return []
-
-    mean_val = sum(sum(advantage) / n for advantage in advantages)
-    var = sum(sum((x - mean_val) ** 2 for x in advantage) for advantage in advantages) / n
-    std = var ** 0.5
-
-    return [[(x - mean_val) / (std + 1e-8) for x in advantage] for advantage in advantages]
+    keys = list(tensor_dict_list[0].keys())
+    ret = dict()
+    for k in keys:
+        example = tensor_dict_list[0][k]
+        if isinstance(example, dict):
+            v = stack_tensor_dict_list([x[k] for x in tensor_dict_list])
+        else:
+            v = [x[k] for x in tensor_dict_list]
+        ret[k] = v
+    return ret
 
 
 def shift_advantages_to_positive(advantages):

@@ -45,13 +45,17 @@ class MAML_BASE(nn.Module):
         self.clip_eps = clip_eps
         self.inner_kl_coeff = torch.full((inner_grad_steps,), init_inner_kl_penalty, dtype=torch.float32, device=device)
         self.device = device
-        self.sample_processor = MetaSampleProcessor(baseline=baseline,discount=discount ,gae_lambda= gae_lambda,normalize_adv=normalize_adv,device=device)
+        self.alpha = alpha
+        self.beta = beta
+        self.adapted_agents = None
+        self.sample_processor = MetaSampleProcessor(baseline=baseline,discount=discount ,gae_lambda= gae_lambda,normalize_adv=normalize_adv)
         self.writer = SummaryWriter(log_dir=tensor_log)
         self.sampler = sampler(self.env,
                                self.agent,
                                self.rollout_per_task,
                                self.num_tasks,
                                max_path_length,
+                               envs_per_task=None,
                                parallel=parallel)
         
 
@@ -67,6 +71,24 @@ class MAML_BASE(nn.Module):
     def step_kl(self, batch: dict, params: Dict[str, torch.Tensor]) -> torch.Tensor:
         """(옵션) KL(old||new) 측정/패널티용"""
         raise NotImplementedError
+    @staticmethod
+    def _safe_key(name: str) -> str:
+        # ParameterDict 등록 시 키에 '.' 쓰면 안 됨
+        return name.replace('.', '__')
+    
+    def _create_step_size_tensors(self) -> None:
+        """
+        각 파라미터와 동일 shape의 step size 텐서를 생성.
+        - trainable=True  -> nn.ParameterDict 에 등록 (메타 최적화 시 함께 학습 가능)
+        - trainable=False -> 일반 텐서 dict로 보관 (requires_grad=False)
+        """
+
+        pdict = nn.ParameterDict()
+        for name, p in self.agent.named_parameters():
+            key = self._safe_key(name)
+            init = torch.full_like(p, fill_value=self.alpha, device=self.device)
+            pdict[key] = nn.Parameter(init)  # learnable α_i
+        self.inner_step_sizes = pdict
 
     # -------------------- 내부 유틸 --------------------
 
@@ -80,12 +102,13 @@ class MAML_BASE(nn.Module):
         1) inner_loop -> adapted_state_dicts, last_paths
         2) (반복) outer_loop -> meta update
         """
+        self._create_step_size_tensors()
         for epoch in range(epochs):
-            self.env.sample_tasks(self.num_tasks)
+            self.sampler.update_tasks()
             base_sd = copy.deepcopy(self.agent.state_dict())
-            _, paths = self.inner_loop(base_state_dict=base_sd)
-            for iter in range(self.outer_iters):
-                self.outer_loop(paths)
+            self.adapted_agents, paths = self.inner_loop(base_state_dict=base_sd)
+            print("Outer Learning Start")
+            self.outer_loop(paths)
             reward, cost_dict, _ = self.env.report_scalar(paths)
             self.writer.add_scalar("Reward", reward, global_step=epoch)
             self.writer.add_scalars("Costs",cost_dict, global_step=epoch)
@@ -94,7 +117,6 @@ class MAML_BASE(nn.Module):
 
     # -------------------- inner / outer --------------------
     def inner_loop(self,
-                   base_state_dict: Optional[Dict[str, torch.Tensor]] = None
                    ) -> Tuple[List[Dict[str, torch.Tensor]], List]:
         
         raise NotImplementedError
@@ -105,17 +127,15 @@ class MAML_BASE(nn.Module):
         그 grad를 meta-parameter에 그대로 적용(평균)한다.
         """
         # 필요 시: 새 데이터로 outer 수집하고 싶다면 아래 한 줄로 대체 가능
-        # paths = self.sampler.obtain_samples(adapted_state_dicts)
-    
         # 3) 태스크별 inner 업데이트 + 이번 step KL 측정
-        loss_outs = []
-        for task_id in range(self.num_tasks):
-            # (a) 현재 파라미터 로드 후 inner loss/grad
-            batch = paths[task_id]
-            loss_outs.append(self.outer_obj(batch))
-        
-        # (a) 현재 파라미터 로드 후 inner loss/grad
-        loss_out = sum(loss_outs)
-        self.optimizer.zero_grad(set_to_none=True)
-        loss_out.backward(retain_graph = False)                 # retain_graph=False (기본)
-        self.optimizer.step()
+        for step in range(self.outer_iters):
+            for task_id in range(self.num_tasks):
+                batch = paths[task_id]
+
+                # 2) task별 outer loss
+                loss_out = self.outer_obj(batch)
+            
+            loss_out = sum(loss_out)
+            self.optimizer.zero_grad()
+            loss_out.backward(retain_graph = True) #theta를 n번 업데이트 하기 때문에 retain graph = True
+            self.optimizer.step()

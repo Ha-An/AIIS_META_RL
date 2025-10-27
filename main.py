@@ -26,7 +26,7 @@ def main(params):
                     outer_iters=params["outer_iters"], 
                     parallel=params["parallel"], 
                     rollout_per_task=params["rollout_per_task"], 
-                    clip_eps=params["num_task"], 
+                    clip_eps=params["clip_eps"], 
                     device=params["device"])
     
     meta_algo.learn(params["epochs"])

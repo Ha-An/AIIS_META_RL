@@ -49,7 +49,6 @@ class ProMP(MAML_BASE):
             discount=discount, gae_lambda=gae_lambda,
             normalize_adv=normalize_adv, device=device
         )
-        self.alpha = alpha
         self.clip_eps = float(clip_eps)
         self.target_kl_diff = float(target_kl_diff)
         self.adaptive_inner_kl_penalty = bool(adaptive_inner_kl_penalty)
@@ -65,54 +64,53 @@ class ProMP(MAML_BASE):
         self._last_inner_kls = torch.zeros(
             inner_grad_steps, dtype=torch.float32, device=self.device
         )
-
+        self.inner_kls = []
+        self.alpha = alpha
+        self.optimizers = []
         # inner 적응용 에이전트 복사본(태스크별)
-        self.dummy_agents = [copy.deepcopy(agent) for _ in range(num_tasks)]
+        self.adapted_agents = [copy.deepcopy(agent) for _ in range(num_tasks)]
+        self.old_agent = None
 
     # ---------- surrogate ----------
     def _surrogate(self,
-                   logp_new: torch.Tensor,
-                   logp_old: torch.Tensor,
-                   advs: torch.Tensor,
-                   clip: bool = False) -> torch.Tensor:
+               logp_new: torch.Tensor,
+               logp_old: torch.Tensor,
+               advs: torch.Tensor,
+               clip: bool = False) -> torch.Tensor:
         """
-        logp_*: [...], 액션 차원까지 합쳐진 샘플별 log-prob 형태를 가정
-        advs  : [...] (샘플별 advantage)
+        PPO/ProMP surrogate objective (vectorized)
+        logp_* : tensor [...], summed log-prob per sample
+        advs   : tensor [...], advantage per sample
         """
+        # ensure tensors
         if isinstance(logp_new, (list, tuple)):
-            logp_new = torch.stack(logp_new, dim=0)
+            logp_new = torch.stack(logp_new)
         if isinstance(logp_old, (list, tuple)):
-            logp_old = torch.stack(logp_old, dim=0)
+            logp_old = torch.stack(logp_old).detach()
         if isinstance(advs, (list, tuple)):
-            advs = torch.stack(advs, dim=0)
+            advs = torch.stack(advs).detach()
+        # Log-likelihood ratio
+        ratios = torch.exp(logp_new - logp_old)
 
-        # Cal Log-Likelihood Ratio
-        # 분모(old)와 adv는 stop-grad
-        logp_old = logp_old.detach()
-        advs = advs.detach()
-        # 입실론 세팅
-        eps = self.clip_eps * self.anneal_coeff
-        #delta = (logp_new - logp_old).clamp(-20.0, 20.0)   # 수치 안전
-        delta = (logp_new - logp_old)
-        ratio = torch.exp(delta)
-
-        # If Need clipping
         if clip:
-            surr_loss = -(ratio.clamp(1-eps, 1+eps)*advs).mean()
-
-        # Do not need clipping
+            # PPO-style clipped surrogate
+            clipped_ratios = torch.clamp(ratios, 1.0 - self.clip_eps, 1.0 + self.clip_eps)
+            surr = torch.min(ratios.T * advs, clipped_ratios.T * advs)
         else:
-            surr_loss = -(ratio * advs).mean()
+            # unclipped (vanilla policy gradient)
+            surr = ratios.T * advs
+        return -surr.mean()
 
-        return surr_loss
 
     # ---------- KL (샘플 근사) ----------
     @staticmethod
-    def _kl_from_logps(logp_old: torch.Tensor, logp_new: torch.Tensor) -> torch.Tensor:
+    def _kl_from_logps(logp_old, logp_new):
         """
-        KL(old||new) ≈ E_old[ logp_old - logp_new ]
+        KL(old || new) ≈ E_old[logp_old - logp_new]
+        logp_* 는 정확한 log 확률값(log p(x))임을 전제로 함.
         """
-        return (logp_old.detach() - logp_new).mean()
+        kl = (torch.stack(logp_old) - logp_new).mean()
+        return kl
 
     # ---------- Inner objective ----------
     def inner_obj(self, new_agent, batchs: dict) -> torch.Tensor:
@@ -124,18 +122,17 @@ class ProMP(MAML_BASE):
         surrs = []
         dev = next(self.agent.parameters()).device
         # num of rollouts
-        n_rollouts = len(batchs["actions"]) 
-        for idx in range(n_rollouts):
-            actions = self._to_tensor(batchs["actions"][idx], dev, torch.float32)
-            obs = self._to_tensor(batchs["observations"][idx], dev, torch.float32)
-            adv = self._to_tensor(batchs["advantages"][idx], dev, torch.float32)
-            logp_old = batchs["agent_infos"][idx]["logp"]   # list[t] of tensors or tensor
-            logp_new = new_agent.get_outer_log_probs(obs, actions) # Cal log_probabilty
-            surrs.append(self._surrogate(logp_new=logp_new,
-                                         logp_old=logp_old,
-                                         advs=adv,
-                                         clip=False))
-        return torch.stack(surrs).mean()
+        actions = self._to_tensor(batchs["actions"], dev, torch.float32)
+        obs = self._to_tensor(batchs["observations"], dev, torch.float32)
+        adv = self._to_tensor(batchs["advantages"], dev, torch.float32)
+        logp_old = batchs["agent_info"]["logp"]   # list[t] of tensors or tensor
+        logp_new = new_agent.get_outer_log_probs(obs, actions) # Cal log_probabilty
+        self._surrogate(logp_new=logp_new,
+                                        logp_old=logp_old,
+                                        advs=adv,
+                                        clip=False)
+        self.inner_kls.append(self._kl_from_logps(logp_old, logp_new))
+        return surrs
 
     # ---------- Outer objective ----------
     def outer_obj(self, batchs) -> torch.Tensor:
@@ -143,27 +140,19 @@ class ProMP(MAML_BASE):
         각 rollout에 대해 PPO-clip surrogate를 계산해 평균
         + λ * KL(old||new) (λ는 step별 계수 평균)
         """
-        surrs, kl_list = [], []
         dev = next(self.agent.parameters()).device
-        n_rollouts = len(batchs["actions"])
-
-        for idx in range(n_rollouts):
-            actions = self._to_tensor(batchs["actions"][idx], dev, torch.float32)
-            obs = self._to_tensor(batchs["observations"][idx], dev, torch.float32)
-            adv = self._to_tensor(batchs["advantages"][idx], dev, torch.float32)
-
-            logp_new = self.agent.get_outer_log_probs(obs, actions)
-            logp_old = torch.stack(batchs["agent_infos"][idx]["logp"])
-
-            surrs.append(self._surrogate(logp_new=logp_new,
-                                         logp_old=logp_old,
-                                         advs=adv,
-                                         clip=True))
-
-        surr_loss = torch.stack(surrs).mean() 
+        actions = self._to_tensor(batchs["actions"], dev, torch.float32)
+        obs = self._to_tensor(batchs["observations"], dev, torch.float32)
+        adv = self._to_tensor(batchs["advantages"], dev, torch.float32)
+        logp_new = self.agent.get_outer_log_probs(obs, actions)
+        logp_old = batchs["agent_info"]["logp"]   # list[t] of tensors or tensor
+        surr_loss = self._surrogate(logp_new=logp_new,
+                                        logp_old=logp_old,
+                                        advs=adv,
+                                        clip=True)
 
         # KL은 페널티이므로 + 로 더한다
-        return surr_loss + self._last_inner_kls 
+        return surr_loss + self._last_inner_kls.detach() * self.inner_kl_coeff
 
     # ---------- Inner loop (태스크별 적응 + KL 모니터링/anneal) ----------
     def inner_loop(self,
@@ -173,57 +162,52 @@ class ProMP(MAML_BASE):
         반환: (적응된 에이전트 리스트, 마지막(post_update) 수집 경로들)
         """
         # 태스크별 적응용 에이전트
-        adapted_agents = [copy.deepcopy(self.agent) for _ in range(self.num_tasks)]
+        self.adapted_agents = [copy.deepcopy(self.agent) for _ in range(self.num_tasks)]
+        self.old_agent = copy.deepcopy(self.agent)
+        #self.optimizers = [optim.Adam(self.adapted_agents[i].parameters(), lr=self.alpha) for i in range(len(self.adapted_agents))]
 
-        inner_kls_per_step = torch.zeros(self.inner_grad_steps,
-                                         dtype=torch.float32,
-                                         device=self.device)
         for step in range(self.inner_grad_steps + 1):
             if step == self.inner_grad_steps:
                 # post-update 수집
-                last_paths = self.sampler.obtain_samples(adapted_agents, post_update=True)
+                last_paths = self.sampler.obtain_samples(self.adapted_agents, post_update=True)
                 last_paths = self.sample_processor.process_samples(last_paths)
 
                 # KL 계수 적응
-                self._last_inner_kls = inner_kls_per_step.detach()
+                self._last_inner_kls = sum(self.inner_kls)/len(self.inner_kls)
                 if self.adaptive_inner_kl_penalty and self.inner_grad_steps > 0:
                     self._adapt_inner_kl_coeff(self._last_inner_kls)
 
                 # clip epsilon anneal
                 self.anneal_coeff *= self.anneal_factor
 
-                return adapted_agents, last_paths
+                return self.adapted_agents, last_paths
             else:
-                step_kls = []
                 self.sampler.agent = self.agent # old parameter 적용
-                last_paths = self.sampler.obtain_samples(adapted_agents, post_update = False)  # list[task] of paths
+                last_paths = self.sampler.obtain_samples(self.adapted_agents, post_update = False)  # list[task] of paths
                 last_paths = self.sample_processor.process_samples(last_paths)
-
+                print("log_p:", len(last_paths[0]["agent_info"]["logp"]))
                 # 3) 태스크별 inner 업데이트 + 이번 step KL 측정
                 for task_id in range(self.num_tasks):
-                    inner_optimizer = optim.Adam(self.dummy_agents[task_id].parameters(), lr = self.alpha)
+                    print(f"Inner: {task_id+1}/{self.num_tasks}")
                     batch = last_paths[task_id]
-                    # (a) 현재 파라미터 로드 후 inner loss/grad
-                    loss_in = self.inner_obj(self.dummy_agents[task_id], batch)
-                    inner_optimizer.zero_grad()
-                    loss_in.backward()
-                    inner_optimizer.step()
-
-                # (c) KL(old||new) 측정: old=수집 당시 logp, new=업데이트된 파라미터로 재평가
-                with torch.no_grad():
-                    # rollout 평균으로 KL 집계
-                    kls_this_task = []
-                    n_rollouts = len(batch["actions"])
-                    dev = next(self.agent.parameters()).device
-                    for ridx in range(n_rollouts):
-                        obs = self._to_tensor(batch["observations"][ridx], dev, torch.float32)
-                        acts = self._to_tensor(batch["actions"][ridx], dev, torch.float32)
-                        logp_old = torch.stack(batch["agent_infos"][ridx]["logp"]).detach()
-                        logp_new = adapted_agents[task_id].get_outer_log_probs(obs, acts)
-                        kls_this_task.append(self._kl_from_logps(logp_old, logp_new))
-                    step_kls.append(torch.stack(kls_this_task).mean())
-
-            inner_kls_per_step[step] = torch.stack(step_kls).mean()
+                    # (a) 현재 파라미터로 inner objective 계산
+                    loss_in = self.inner_obj(self.adapted_agents[task_id], batch)
+                    
+                    # (c) 그 파라미터들에 대한 grad 계산 (Outer에서 접근 가능해야 하기 때문에 Create_Graph True)
+                    grads = torch.autograd.grad(
+                        loss_in,
+                        self.adapted_agents[task_id].parameters(),
+                        create_graph=True,
+                        allow_unused=True
+                    )
+                    # (d) 한 스텝 업데이트: θ' = θ + α * ∇θ (pseudo-code Line 8)
+                    with torch.no_grad():
+                        for (name, p), g in zip(self.agent.named_parameters(), grads):
+                            if g is None:
+                                continue
+                            step = self.inner_step_sizes[self._safe_key(name)]
+                            # θ' = θ - α_i ⊙ ∇θ  (ProMP inner update)
+                            p.add_(-step * g)
 
     # ---------- KL penalty coeff update ----------
     def _adapt_inner_kl_coeff(self, inner_kls: torch.Tensor):

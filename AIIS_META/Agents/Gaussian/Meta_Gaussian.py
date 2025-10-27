@@ -35,12 +35,16 @@ class MetaGaussianAgent(GaussianAgent):
 
         logps = dist.log_prob(action)
         
-        info = [[dict(logp=logps[task_idx][rollout_idx]) for rollout_idx in range(len(logps[task_idx]))] for task_idx in range(self.num_tasks)]
+        agent_info = [[dict(logp=logps[task_idx][rollout_idx]) for rollout_idx in range(len(logps[task_idx]))] for task_idx in range(self.num_tasks)]
 
-        return action, info
+        return action, agent_info
 
     def log_prob_by_params(self, obses,  actions, deterministic: bool = False):
         dist =self.distribution(obses)
         log_ps = dist.log_prob(actions)
     
         return log_ps
+    
+    def forward(self, obs, actions):
+        # functional_call(agent, params, (obs, actions))에서 호출될 엔트리
+        return self.get_outer_log_probs(obs, actions)

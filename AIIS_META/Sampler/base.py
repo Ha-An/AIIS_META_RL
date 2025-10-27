@@ -1,7 +1,6 @@
-# sample_processor_refactored.py
-from AIIS_META.Utils import utils
+import AIIS_META.Utils.utils as utils
 import numpy as np
-import torch
+
 
 class Sampler(object):
     """
@@ -9,65 +8,61 @@ class Sampler(object):
 
     Args:
         env (gym.Env) : environment object
-        agent : agent object
+        policy (meta_policy_search.policies.policy) : policy object
         batch_size (int) : number of trajectories per task
         max_path_length (int) : max number of steps per trajectory
     """
 
-    def __init__(self,
-            env,
-            agent,
-            rollout_per_task,
-            meta_batch_size,
-            max_path_length,
-            envs_per_task=None,
-            parallel=False):
+    def __init__(self, env, policy, batch_size, max_path_length):
         assert hasattr(env, 'reset') and hasattr(env, 'step')
+
         self.env = env
-        self.agent = agent
-        self.batch_size = meta_batch_size
+        self.policy = policy
+        self.batch_size = batch_size
         self.max_path_length = max_path_length
 
     def obtain_samples(self):
-        """Collect batch_size trajectories -> List[Path]"""
+        """
+        Collect batch_size trajectories
+
+        Returns: 
+            (list) : A list of paths.
+        """
         raise NotImplementedError
 
 
 class SampleProcessor(object):
     """
-    Sample processor
-      - (옵션) 주어진 external advantages 사용
-      - 아니면 baseline을 fit하고 GAE로 advantage 계산
-      - normalize/shift 옵션 제공
+    Sample processor interface
+        - fits a reward baseline (use zero baseline to skip this step)
+        - performs Generalized Advantage Estimation to provide advantages (see Schulman et al. 2015 - https://arxiv.org/abs/1506.02438)
 
     Args:
-        baseline (Baseline or None) : reward baseline object (fit/predict 필요)
-        discount (float) : gamma
-        gae_lambda (float) : lambda
-        normalize_adv (bool) : advantage 정규화
-        positive_adv (bool) : advantage를 양수로 쉬프트
+        baseline (Baseline) : a reward baseline object
+        discount (float) : reward discount factor
+        gae_lambda (float) : Generalized Advantage Estimation lambda
+        normalize_adv (bool) : indicates whether to normalize the estimated advantages (zero mean and unit std)
+        positive_adv (bool) : indicates whether to shift the (normalized) advantages so that they are all positive
     """
 
     def __init__(
-        self,
-        baseline=None,
-        discount=0.99,
-        gae_lambda=1.0,
-        normalize_adv=False,
-        positive_adv=False,
-        device = None,
-    ):
-        assert 0.0 <= discount <= 1.0, 'discount factor must be in [0,1]'
-        assert 0.0 <= gae_lambda <= 1.0, 'gae_lambda must be in [0,1]'
-        # baseline은 외부 adv를 쓰면 없어도 됨
-        if baseline is not None:
-            assert hasattr(baseline, 'fit') and hasattr(baseline, 'predict')
+            self,
+            baseline,
+            discount=0.99,
+            gae_lambda=1,
+            normalize_adv=False,
+            positive_adv=False,
+            ):
+
+        assert 0 <= discount <= 1.0, 'discount factor must be in [0,1]'
+        assert 0 <= gae_lambda <= 1.0, 'gae_lambda must be in [0,1]'
+        assert hasattr(baseline, 'fit') and hasattr(baseline, 'predict')
+        
         self.baseline = baseline
         self.discount = discount
         self.gae_lambda = gae_lambda
         self.normalize_adv = normalize_adv
         self.positive_adv = positive_adv
-        self.device = device
 
     def process_samples(self, paths, log=False, log_prefix=''):
         """
@@ -98,29 +93,33 @@ class SampleProcessor(object):
 
         assert samples_data.keys() >= {'observations', 'actions', 'rewards', 'advantages', 'returns'}
         return samples_data
-    
+
+    """ helper functions """
+
     def _compute_samples_data(self, paths):
         assert type(paths) == list
 
         # 1) compute discounted rewards (returns)
         for idx, path in enumerate(paths):
-            path["returns"] = utils.discount_cumsum(path["rewards"], self.discount, device=self.device)
+            path["returns"] = utils.discount_cumsum(path["rewards"], self.discount)
 
         # 2) fit baseline estimator using the path returns and predict the return baselines
         self.baseline.fit(paths, target_key="returns")
         all_path_baselines = [self.baseline.predict(path) for path in paths]
 
+        # 3) compute advantages and adjusted rewards
         paths = self._compute_advantages(paths, all_path_baselines)
         
+
         # 4) stack path data
         observations, actions, rewards, returns, advantages, env_infos, agent_infos = self._stack_path_data(paths)
-
+        
         # 5) if desired normalize / shift advantages
         if self.normalize_adv:
             advantages = utils.normalize_advantages(advantages)
         if self.positive_adv:
             advantages = utils.shift_advantages_to_positive(advantages)
-    
+
         # 6) create samples_data object
         samples_data = dict(
             observations=observations,
@@ -129,22 +128,10 @@ class SampleProcessor(object):
             returns=returns,
             advantages=advantages,
             env_infos=env_infos,
-            agent_infos=agent_infos,
+            agent_info=agent_infos,
         )
 
         return samples_data, paths
-
-    
-    def _stack_path_data(self, paths):
-        observations = [path["observations"] for path in paths]
-        actions = [path["actions"] for path in paths]
-        rewards = [path["rewards"] for path in paths]
-        returns = [path["returns"] for path in paths]
-        advantages = [path["advantages"] for path in paths]
-        env_infos = [utils.stack_tensor_dict_list(path["env_infos"]) for path in paths]
-        agent_infos = [utils.stack_tensor_dict_list(path["agent_infos"]) for path in paths]
-
-        return observations, actions, rewards, returns, advantages, env_infos, agent_infos
     
     def _compute_advantages(self, paths, all_path_baselines):
         assert len(paths) == len(all_path_baselines)
@@ -155,6 +142,19 @@ class SampleProcessor(object):
                      self.discount * path_baselines[1:] - \
                      path_baselines[:-1]
             path["advantages"] = utils.discount_cumsum(
-                deltas, self.discount * self.gae_lambda, device=self.device)
+                deltas, self.discount * self.gae_lambda)
+        
 
         return paths
+
+
+    def _stack_path_data(self, paths):
+        observations = np.concatenate([path["observations"] for path in paths])
+        actions = np.concatenate([path["actions"] for path in paths])
+        rewards = np.concatenate([path["rewards"] for path in paths])
+        returns = np.concatenate([path["returns"] for path in paths])
+        advantages = np.concatenate([path["advantages"] for path in paths])
+        env_infos = utils.concat_tensor_dict_list([path["env_infos"] for path in paths])
+        agent_info = utils.concat_tensor_dict_tensor([path["agent_info"] for path in paths])
+        return observations, actions, rewards, returns, advantages, env_infos, agent_info
+

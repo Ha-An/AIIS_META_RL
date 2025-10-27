@@ -133,9 +133,20 @@ class MAML_BASE(nn.Module):
                 batch = paths[task_id]
 
                 # 2) task별 outer loss
-                loss_out = self.outer_obj(batch)
-            
-            loss_out = sum(loss_out)
-            self.optimizer.zero_grad()
-            loss_out.backward(retain_graph = True) #theta를 n번 업데이트 하기 때문에 retain graph = True
-            self.optimizer.step()
+                loss_out = self.outer_obj(batch, self.adapted_agents[task_id])
+        
+            # (c) 그 파라미터들에 대한 grad 계산 (Outer에서 접근 가능해야 하기 때문에 Create_Graph True)
+            grads = torch.autograd.grad(
+                loss_out,
+                self.adapted_agents[task_id].parameters(),
+                create_graph=False,
+                retain_graph=True,
+                allow_unused=True
+            )
+            # (d) 한 스텝 업데이트: θ' = θ + α * ∇θ (pseudo-code Line 8)
+            with torch.no_grad():
+                for (name, p), g in zip(self.agent.named_parameters(), grads):
+                    if g is None:
+                        continue
+                    # θ' = θ - α_i ⊙
+                    p.add_(-self.beta * g)

@@ -109,7 +109,7 @@ class ProMP(MAML_BASE):
         KL(old || new) ≈ E_old[logp_old - logp_new]
         logp_* 는 정확한 log 확률값(log p(x))임을 전제로 함.
         """
-        kl = (torch.stack(logp_old) - logp_new).mean()
+        kl = (torch.stack(logp_old).detach() - logp_new).mean()
         return kl
 
     # ---------- Inner objective ----------
@@ -135,16 +135,16 @@ class ProMP(MAML_BASE):
         return surrs
 
     # ---------- Outer objective ----------
-    def outer_obj(self, batchs) -> torch.Tensor:
+    def outer_obj(self, batchs, adapted_agent) -> torch.Tensor:
         """
         각 rollout에 대해 PPO-clip surrogate를 계산해 평균
         + λ * KL(old||new) (λ는 step별 계수 평균)
         """
-        dev = next(self.agent.parameters()).device
+        dev = next(adapted_agent.parameters()).device
         actions = self._to_tensor(batchs["actions"], dev, torch.float32)
         obs = self._to_tensor(batchs["observations"], dev, torch.float32)
         adv = self._to_tensor(batchs["advantages"], dev, torch.float32)
-        logp_new = self.agent.get_outer_log_probs(obs, actions)
+        logp_new = adapted_agent.get_outer_log_probs(obs, actions)
         logp_old = batchs["agent_info"]["logp"]   # list[t] of tensors or tensor
         surr_loss = self._surrogate(logp_new=logp_new,
                                         logp_old=logp_old,
@@ -152,7 +152,7 @@ class ProMP(MAML_BASE):
                                         clip=True)
 
         # KL은 페널티이므로 + 로 더한다
-        return surr_loss + self._last_inner_kls.detach() * self.inner_kl_coeff
+        return surr_loss + self._last_inner_kls * self.inner_kl_coeff
 
     # ---------- Inner loop (태스크별 적응 + KL 모니터링/anneal) ----------
     def inner_loop(self,
@@ -185,7 +185,6 @@ class ProMP(MAML_BASE):
                 self.sampler.agent = self.agent # old parameter 적용
                 last_paths = self.sampler.obtain_samples(self.adapted_agents, post_update = False)  # list[task] of paths
                 last_paths = self.sample_processor.process_samples(last_paths)
-                print("log_p:", len(last_paths[0]["agent_info"]["logp"]))
                 # 3) 태스크별 inner 업데이트 + 이번 step KL 측정
                 for task_id in range(self.num_tasks):
                     print(f"Inner: {task_id+1}/{self.num_tasks}")

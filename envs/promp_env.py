@@ -244,7 +244,7 @@ class MetaEnv(Env):
         
         for key in self.cost_dict.keys():
             for path in paths:
-                cost_dict[key] = cost_dict[key] + path['env_infos'][key][-1]/100
+                cost_dict[key] = cost_dict[key] + path['env_infos'][key][-1]
         '''
         action_datas = {
             "Mat1-I": [min(max(0,np.round(action[0])),5) for action in paths[0]['actions']],

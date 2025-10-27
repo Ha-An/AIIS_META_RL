@@ -64,7 +64,7 @@ class MetaSampler(Sampler):
         assert len(tasks) == self.num_tasks
         self.vec_env.set_tasks(tasks)
 
-    def obtain_samples(self, agents, post_update=False):
+    def obtain_samples(self, params_lst, post_update=False):
         """
         Collect batch_size trajectories from each task
 
@@ -97,9 +97,9 @@ class MetaSampler(Sampler):
             obs_per_task = np.split(np.asarray(obses), self.num_tasks)
             
             if post_update:
-                actions, agent_info = agents[n_samples//self.envs_per_task].get_actions(obs_per_task)
+                actions, agent_info = self.policy.get_actions(obs_per_task, params=params_lst[n_samples//self.envs_per_task], post_update = True)
             else:
-                actions, agent_info = self.agent.get_actions(obs_per_task)
+                actions, agent_info = self.agent.get_actions(obs_per_task, params=None)
             agent_time += time.time() - t
 
             # step environments

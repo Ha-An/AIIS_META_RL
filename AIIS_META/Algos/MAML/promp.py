@@ -154,7 +154,7 @@ class ProMP(MAML_BASE):
 
         # [변경!] adapted_agent 모듈 호출을 functional 'log_prob' 호출로 변경
         # logp_new = adapted_agent.get_outer_log_probs(obs, acts) # [변경 전]
-        logp_new = self.agent.log_prob(obs, acts, params=adapted_params, post_update = True) # [변경 후]
+        logp_new = self.agent.log_prob(obs, acts, params=adapted_params) # [변경 후]
 
         surr = self._surrogate(logp_new=logp_new,
                                logp_old=logp_old,
@@ -163,13 +163,9 @@ class ProMP(MAML_BASE):
         
         # [변경!] self.old_agent (모듈) -> self.old_params (딕셔너리) 사용
         # kl_term_logp_old = self.old_agent.get_outer_log_probs(obs,acts) # [변경 전]
-        with torch.no_grad(): # KL 계산시 old_params 쪽으로는 그래디언트 불필요
-            #kl_term_logp_old = self.agent.log_prob(obs, acts, params=self.old_params).detach() # [변경 후]
-            kl_term_logp_old = self.old_agent.log_prob(obs, acts, params=self.old_params).detach() # [변경 후]
-        return surr + self.inner_kl_coeff * self._kl_from_logps(kl_term_logp_old, logp_new).mean()
+        return surr + self.inner_kl_coeff * self._kl_from_logps(logp_old, logp_new).mean()
 
-    
-    # ---------- Inner loop (태스크별 적응 + KL 모니터링/anneal) ----------
+
     # ---------- Inner loop (태스크별 적응 + KL 모니터링/anneal) ----------
     def inner_loop(self, epoch) -> Tuple[List[Dict[str, torch.Tensor]], List]:
         """
@@ -180,7 +176,6 @@ class ProMP(MAML_BASE):
         self.old_params = {k: v.detach().clone() for k, v in self.agent.named_parameters()}
         
         # 2. (MAML용) 2차-그래디언트 계산의 '시작점'이 될 원본 파라미터(θ)
-        #    [★수정★] .detach().clone()을 절대 사용하면 안 됩니다.
         current_params_theta = OrderedDict(self.agent.named_parameters())
         
         # 3. [★수정★] 'adapted_params_list'를 'current_params_theta' (그래프 연결됨)로 초기화
@@ -202,7 +197,7 @@ class ProMP(MAML_BASE):
                 #    step=0일 때, 'params'는 그래프에 연결된 'current_params_theta'가 됨
                 new_adapted_params = self.theta_prime(
                     batch, 
-                    params=adapted_params_list[task_id]
+                    params=OrderedDict(self.agent.named_parameters())
                 )
                 
                 adapted_params_list[task_id] = new_adapted_params

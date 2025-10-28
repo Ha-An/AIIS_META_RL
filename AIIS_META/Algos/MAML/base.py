@@ -108,13 +108,13 @@ class MAML_BASE(nn.Module):
         
         grads = torch.autograd.grad(
             surr,
-            params.values(),
+            self.agent.parameters(),
             create_graph=True
         )
         
         adapted_params = OrderedDict()
         
-        for (name, p), g in zip(params.items(), grads):
+        for (name, p), g in zip(self.agent.named_parameters(), grads):
             if g is None:
                 adapted_params[name] = p
                 continue

@@ -25,7 +25,7 @@ class SimpleMLP(nn.Module):
       
       for layer_id in range(len(hidden_layers)):
           od[f"fc{layer_id}"]  = nn.Linear(last, hidden_layers[layer_id])
-          od[f"act{layer_id}"] = nn.ReLU() 
+          od[f"act{layer_id}"] = nn.Tanh() 
           last = hidden_layers[layer_id]
       od[f"{len(hidden_layers)}"] = nn.Linear(last, output_dim)
       self.model =  nn.Sequential(od)

@@ -197,7 +197,7 @@ class ProMP(MAML_BASE):
                 #    step=0일 때, 'params'는 그래프에 연결된 'current_params_theta'가 됨
                 new_adapted_params = self.theta_prime(
                     batch, 
-                    params=OrderedDict(self.agent.named_parameters())
+                    params=adapted_params_list[task_id]
                 )
                 
                 adapted_params_list[task_id] = new_adapted_params

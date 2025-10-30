@@ -1,9 +1,7 @@
 import numpy as np
 import scipy
 import scipy.signal
-import json
 import torch
-from typing import Dict, List, Tuple, Optional
 device = torch.device("cpu")
 
 def to_tensor(x, device):
@@ -53,75 +51,76 @@ def module_device_dtype(module):
     # 3) 아무 것도 없으면 기본값
     return torch.device("cpu"), torch.get_default_dtype()
 
-def concat_tensor_dict_list(tensor_dict_list):
+def concat_envs(env_dict_lst):
     """
     Args:
-        tensor_dict_list (list) : list of dicts of lists of tensors
+        env_dict_lst (list) : list of dicts of lists of envs
 
     Returns:
-        (dict) : dict of lists of tensors
+        (dict) : dict of lists of envs
     """
-    keys = list(tensor_dict_list[0].keys())
+    keys = list(env_dict_lst[0].keys())
     ret = dict()
     for k in keys:
-        example = tensor_dict_list[0][k]
+        example = env_dict_lst[0][k]
         if isinstance(example, dict):
-            v = concat_tensor_dict_list([x[k] for x in tensor_dict_list])
+            v = concat_envs([x[k] for x in env_dict_lst])
         else:
-            v = np.concatenate([x[k] for x in tensor_dict_list])
+            v = np.concatenate([x[k] for x in env_dict_lst])
         ret[k] = v
     return ret
-def concat_tensor_dict_tensor(tensor_dict_list):
+def concat_agernt_infos(agent_info_list):
     """
     Args:
-        tensor_dict_list (list) : list of dicts of lists of tensors
+        agent_info_list (list) : list of dicts of lists of agent_infos
 
     Returns:
-        (dict) : dict of lists of tensors
+        (dict) : dict of lists of agent_infos
     """
-    keys = list(tensor_dict_list[0].keys())
+    keys = list(agent_info_list[0].keys())
     ret = dict()
     temp = []
     for k in keys:
-        for x in tensor_dict_list:
+        for x in agent_info_list:
             temp.extend(x[k])
         ret[k] = temp
     return ret
-def stack_tensor_dict_list(tensor_dict_list):
+
+def stack_envs(envs_dict_list):
     """
     Args:
-        tensor_dict_list (list) : list of dicts of tensors
+        envs_dict_list (list) : list of dicts of envs
 
     Returns:
-        (dict) : dict of lists of tensors
+        (dict) : dict of lists of envs
     """
-    keys = list(tensor_dict_list[0].keys())
+    keys = list(envs_dict_list[0].keys())
     ret = dict()
     for k in keys:
-        example = tensor_dict_list[0][k]
+        example = envs_dict_list[0][k]
         if isinstance(example, dict):
-            v = stack_tensor_dict_list([x[k] for x in tensor_dict_list])
+            v = stack_envs([x[k] for x in envs_dict_list])
         else:
-            v = np.asarray([x[k] for x in tensor_dict_list])
+            v = np.asarray([x[k] for x in envs_dict_list])
         ret[k] = v
     return ret
 
-def stack_tensor_dict_torch(tensor_dict_list):
+def stack_agent_infos(agent_info_dict_list):
     """
     Args:
-        tensor_dict_list (list) : list of dicts of tensors
+        agent_info_dict_list (list) : list of dicts of agent_infos
 
     Returns:
-        (dict) : dict of lists of tensors
+        (dict) : dict of lists of agent_infos
     """
-    keys = list(tensor_dict_list[0].keys())
+    keys = list(agent_info_dict_list[0].keys())
     ret = dict()
     for k in keys:
-        example = tensor_dict_list[0][k]
+        example = agent_info_dict_list[0][k]
         if isinstance(example, dict):
-            v = stack_tensor_dict_list([x[k] for x in tensor_dict_list])
+            v = stack_agent_infos([x[k] for x in agent_info_dict_list])
         else:
-            v = [x[k] for x in tensor_dict_list]
+            v = [x[k] for x in agent_info_dict_list]
         ret[k] = v
     return ret
 
@@ -157,142 +156,3 @@ def dict_to_numpy(d, *, dtype=np.float32):
             # 문자열 등은 그대로 둠
             out[k] = v
     return out
-'''
-def get_original_tf_name(name):
-    """
-    Args:
-        name (str): full name of the tf variable with all the scopes
-
-    Returns:
-        (str): name given to the variable when creating it (i.e. name of the variable w/o the scope and the colons)
-    """
-    return name.split("/")[-1].split(":")[0]
-
-
-def remove_scope_from_name(name, scope):
-    """
-    Args:
-        name (str): full name of the tf variable with all the scopes
-
-    Returns:
-        (str): full name of the variable with the scope removed
-    """
-    result = name.split(scope)[1]
-    result = result[1:] if result[0] == '/' else result
-    return result.split(":")[0]
-
-def remove_first_scope_from_name(name):
-    return name.replace(name + '/', "").split(":")[0]
-
-def get_last_scope(name):
-    """
-    Args:
-        name (str): full name of the tf variable with all the scopes
-
-    Returns:
-        (str): name of the last scope
-    """
-    return name.split("/")[-2]
-
-
-def extract(x, *keys):
-    """
-    Args:
-        x (dict or list): dict or list of dicts
-
-    Returns:
-        (tuple): tuple with the elements of the dict or the dicts of the list
-    """
-    if isinstance(x, dict):
-        return tuple(x[k] for k in keys)
-    elif isinstance(x, list):
-        return tuple([xi[k] for xi in x] for k in keys)
-    else:
-        raise NotImplementedError
-
-
-def normalize_advantages(advantages):
-    """
-    Args:
-        advantages (np.ndarray): np array with the advantages
-
-    Returns:
-        (np.ndarray): np array with the advantages normalized
-    """
-    return (advantages - np.mean(advantages)) / (advantages.std() + 1e-8)
-
-def shift_advantages_to_positive(advantages):
-    return (advantages - np.min(advantages)) + 1e-8
-
-
-
-
-def explained_variance_1d(ypred, y):
-    """
-    Args:
-        ypred (np.ndarray): predicted values of the variable of interest
-        y (np.ndarray): real values of the variable
-
-    Returns:
-        (float): variance explained by your estimator
-
-    """
-    assert y.ndim == 1 and ypred.ndim == 1
-    vary = np.var(y)
-    if np.isclose(vary, 0):
-        if np.var(ypred) > 0:
-            return 0
-        else:
-            return 1
-    return 1 - np.var(y - ypred) / (vary + 1e-8)
-
-
-def concat_tensor_dict_list(tensor_dict_list):
-    """
-    Args:
-        tensor_dict_list (list) : list of dicts of lists of tensors
-
-    Returns:
-        (dict) : dict of lists of tensors
-    """
-    keys = list(tensor_dict_list[0].keys())
-    ret = dict()
-    for k in keys:
-        example = tensor_dict_list[0][k]
-        if isinstance(example, dict):
-            v = concat_tensor_dict_list([x[k] for x in tensor_dict_list])
-        else:
-            v = np.concatenate([x[k] for x in tensor_dict_list])
-        ret[k] = v
-    return ret
-
-
-def set_seed(seed: int) -> None:
-    """
-    Set random seeds for Python, NumPy, and PyTorch (CPU/CUDA).
-
-    Args:
-        seed (int): random seed
-        deterministic (bool): make CUDA/cuDNN behavior deterministic (slower)
-
-    Returns:
-        None
-    """
-    import os, random
-    import numpy as np
-    import torch
-
-    # 정규화(원하는 값 그대로 써도 되지만, 범위를 32-bit로 맞춰 저장성 보장)
-    seed = int(seed) & 0xFFFFFFFF
-
-    # Python / NumPy
-    os.environ["PYTHONHASHSEED"] = str(seed)
-    random.seed(seed)
-    np.random.seed(seed)
-
-    # PyTorch (CPU/CUDA)
-    torch.manual_seed(seed)
-    torch.cuda.manual_seed_all(seed)
-
-    print(f"Using seed {seed})")
-'''

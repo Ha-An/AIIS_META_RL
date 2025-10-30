@@ -7,22 +7,16 @@ import numpy as np
 from envs.config_RL import * 
 # import environment as env # for Meta-learning
 import envs.environment as env #for baseline_test
-import torch
 from envs.log_SimPy import *
 from envs.log_RL import *
-import matplotlib.pyplot as plt
-from envs.scenarios import *
-from collections import Counter
-import pandas as pd
+import envs.scenarios as scenarios
 
 class MetaEnv(Env):
     """
     Wrapper around OpenAI gym environments, interface for meta learning
     """
     def __init__(self):
-        self.actions = []
-
-        self.all_tasks = create_scenarios()
+        
         #print("Tensorboard Directory: :", TENSORFLOW_LOGS)
         super(MetaEnv, self).__init__()
 
@@ -48,7 +42,7 @@ class MetaEnv(Env):
 
         # DAILY_CHANGE + INTRANSIT + REMAINING_DEMAND
         os = spaces.Box(low = 0, high = INVEN_LEVEL_MAX*2+1, shape=(len(I[ASSEMBLY_PROCESS])*(1+DAILY_CHANGE)+MAT_COUNT*INTRANSIT+1,1), dtype=int)
-        
+        self.candidate_tasks = None
         '''
         - Inventory Level of Product
         - Daily Change of Product
@@ -60,6 +54,10 @@ class MetaEnv(Env):
         '''
         self.observation_space = os
         self.task = None
+
+    def create_scenarios(self):
+        return scenarios.create_scenarios()
+    
     def sample_tasks(self, n_tasks):
         """
         Samples task of the meta-environment
@@ -71,8 +69,9 @@ class MetaEnv(Env):
             tasks (list) : an (n_tasks) length list of tasks
         """
         print("all tasks reset")
-        self.tasks = random.sample(self.all_tasks, n_tasks)
-        self.all_tasks = create_scenarios()
+        self.candidate_tasks = self.create_scenarios()
+        self.tasks = random.sample(self.candidate_tasks, n_tasks)
+        
         return self.tasks
 
     def set_task(self, task):
@@ -113,12 +112,11 @@ class MetaEnv(Env):
         state_real = self.get_current_state()
         STATE_DICT.clear()
         DAILY_REPORTS.clear()
-        self.actions = []
+
         return state_real
 
     def step(self, action):
-        self.actions.append(action)
-        
+
         # Update the action of the agent
         test_actions = []
         # Update the action of the agent
@@ -212,7 +210,7 @@ class MetaEnv(Env):
                      self.inventoryList[0].on_hand_inventory+INVEN_LEVEL_MAX)
         
         return state
-    def report_scalar(self, paths):
+    def report_scalar(self, paths, rollouts):
         """
         Logs env-specific diagnostic information
 
@@ -220,20 +218,14 @@ class MetaEnv(Env):
             paths (list) : list of all paths collected with this env during this iteration
             prefix (str) : prefix for logger
         """
+        infos = {}
+
         rewards = 0
         for path in paths:
             rewards += sum(path['rewards'])
-        average = rewards/100
 
-        '''
-        if now+1 == goal:
-            bins = np.arange(-2, 6, 0.1)  # 11까지 해야 10이 포함됨
-            plt.hist(hist_path, bins=bins, edgecolor='black')
-            plt.title('Histogram (-2 to 6, bin=0.1)')
-            plt.xlabel('Value')
-            plt.ylabel('Frequency')
-            plt.show()
-        '''
+        average = rewards/(len(paths)*rollouts)
+        
         cost_dict = {
             'Holding cost': 0,
             'Process cost': 0,
@@ -245,21 +237,9 @@ class MetaEnv(Env):
         for key in self.cost_dict.keys():
             for path in paths:
                 cost_dict[key] = cost_dict[key] + path['env_infos'][key][-1]
-        '''
-        action_datas = {
-            "Mat1-I": [min(max(0,np.round(action[0])),5) for action in paths[0]['actions']],
-            "Mat1-R":[action[0] for action in paths[0]['actions']],
-            "Mat2-I": [min(max(0,np.round(action[1])),5) for action in paths[0]['actions']],
-            "Mat2-R":[action[1] for action in paths[0]['actions']],
-            "Mat3-I": [min(max(0,np.round(action[2])),5) for action in paths[0]['actions']],
-            "Mat3-R":[action[2] for action in paths[0]['actions']],
-            "Mat4-I": [min(max(0,np.round(action[3])),5) for action in paths[0]['actions']],
-            "Mat4-R":[action[3] for action in paths[0]['actions']],
-            "Mat5-I": [min(max(0,np.round(action[4])),5) for action in paths[0]['actions']],
-            "Mat5-R":[action[4] for action in paths[0]['actions']],
-        }
-        '''
-        return average, cost_dict, None
-       
+                
+        infos['reward'] = average
+        infos['cost'] = cost_dict
+        return infos
  
     

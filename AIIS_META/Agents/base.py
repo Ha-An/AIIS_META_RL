@@ -5,58 +5,99 @@ import torch.nn as nn
 from typing import Sequence, Type, List, Dict, Optional, Tuple
 from collections import OrderedDict
 
+
 class BaseAgent(nn.Module):
-  """
-  알고리즘(ProMP 등)이 기대하는 최소 정책 API를 한 클래스에 통합.
-
-  핵심 원칙
-    - 분포 타입(가우시안/카테고리/혼합 등)에는 전혀 의존하지 않음.
-    - 알고리즘은 오직 log_prob(obs, actions, params)만 호출.
-    - 샘플러는 act(obs) 호출 시 agent_infos['logp'](샘플 시점의 log_prob)를 반드시 기록.
-
-  서브클래스가 구현해야 할 것
-    - act(self, obs, deterministic=False) -> (actions, agent_infos[필수:'logp'])
-    - log_prob(self, obs, actions, params=None) -> [B] 텐서
-    - (선택) _functional_forward(self, obs, params): inner-loop로 적응한 params로 forward 하고 싶을 때
-    - (필요 시) forward(...) 재정의 (분포/출력 방식이 다르면)
-
-  편의 기능
-    - 기본 MLP 백본(self.net)을 옵션으로 제공(build_backbone=True). 필요 없으면 무시하거나 False로 끄면 됨.
-    - get_action / get_actions_all_tasks: 기존 코드와의 이름 호환용 래퍼(선택 구현).
-  """
-
-  def __init__(self,
-               mlp,
-                gamma: float = 0.99,
-                has_value_fn: bool = False,
-                need_probs: bool = False):
-      super().__init__()
-      self.mlp = mlp
-      self.gamma = gamma
-      self.has_value_fn = has_value_fn  # [NEW]
-
-  # ---------------------- 최소 API (알고리즘이 의존) ----------------------
-  torch.no_grad()
-  def get_actions(self,
-                  observation: torch.Tensor,
-                  task: int = 0,
-                  deterministic: bool = False, need_probs: bool = False) -> Tuple[torch.Tensor, Dict[str, torch.Tensor]]:
     """
-    기존 코드 호환을 위해 제공하는 래퍼. 내부적으로 act(...)를 호출한다.
-    - task 인자는 시그니처 호환용일 뿐, 기본 Basemlp에서는 사용하지 않는다.
+    BaseAgent
+    ----------
+    A unified abstract interface for all policy classes (Gaussian, Categorical, etc.)
+    expected by meta-RL algorithms such as ProMP, MAML, and Reptile.
+
+    Core Design Principles:
+      - Completely agnostic to the type of distribution (Gaussian, categorical, etc.)
+      - The algorithm interacts only through:
+          - log_prob(obs, actions, params)
+          - get_actions(obs, params)
+      - The sampler must record agent_infos['logp'] during data collection.
+
+    Subclass Requirements:
+      Each subclass (e.g., GaussianAgent) must implement:
+        - get_actions(self, obs, params, deterministic=False, post_update=False)
+            → returns (actions, agent_info)
+            → agent_info must contain key 'logp'
+        - log_prob(self, obs, actions, params)
+            → returns tensor of shape [B] (log-prob per sample)
+        - Optionally override forward() if needed.
+
+    Utility:
+      - BaseAgent can optionally include a backbone network (e.g., MLP)
+        that can be reused or ignored by child classes.
+      - Provides naming compatibility (get_action, get_actions_all_tasks, etc.)
+        with older codebases.
     """
-    raise NotImplementedError
-  
-  def log_prob(self,
-                obs: torch.Tensor,
-                actions: torch.Tensor,) -> torch.Tensor:
-      """
-      Args:
-        obs: [B, obs_dim]
-        actions: [B, out_dim]
-      Returns:
-        [B] 텐서 (각 샘플의 log_prob)
-      Note:
-        - 분포 타입에 상관없이 로그확률만 정확히 반환하면 알고리즘 쪽은 그대로 작동한다.
-      """
-      raise NotImplementedError
+
+    def __init__(self,
+                 mlp,
+                 gamma: float = 0.99):
+        """
+        Args:
+            mlp (nn.Module): Policy backbone network (e.g., MLP)
+            gamma (float): Discount factor for RL algorithms
+        """
+        super().__init__()
+        self.mlp = mlp
+        self.gamma = gamma
+
+    # ==========================================================
+    # Minimal API — required by meta-learning algorithms
+    # ==========================================================
+    @torch.no_grad()
+    def get_actions(self,
+                    obs: torch.Tensor,
+                    params: Dict[str, torch.Tensor],   # Functional parameter dict (required)
+                    deterministic: bool = False,
+                    post_update: bool = False
+                    ) -> Tuple[torch.Tensor, Dict[str, torch.Tensor]]:
+        """
+        Wrapper for sampling actions — must be overridden by subclasses.
+
+        Args:
+            obs (torch.Tensor): Input observation(s)
+            params (Dict[str, torch.Tensor]): Parameter dictionary (task-adapted or meta)
+            deterministic (bool): If True, selects mean action (no exploration)
+            post_update (bool): Indicates post-inner-loop evaluation
+
+        Returns:
+            Tuple[
+                torch.Tensor,  # Sampled actions
+                Dict[str, torch.Tensor]  # agent_info including 'logp'
+            ]
+
+        Note:
+            - In this base class, the function is abstract and raises NotImplementedError.
+            - Subclasses (e.g., GaussianAgent) must implement the logic using their own distribution type.
+        """
+        raise NotImplementedError
+
+    def log_prob(self,
+                 obs: torch.Tensor,
+                 actions: torch.Tensor,
+                 params: Dict[str, torch.Tensor]) -> torch.Tensor:
+        """
+        Compute log-probabilities of given actions under the policy
+        defined by the provided parameters.
+
+        Args:
+            obs (torch.Tensor): Observations, shape [B, obs_dim]
+            actions (torch.Tensor): Actions, shape [B, act_dim]
+            params (Dict[str, torch.Tensor]): Parameter dictionary
+
+        Returns:
+            torch.Tensor: Log-probabilities of shape [B]
+
+        Notes:
+            - Distribution type (Gaussian, Categorical, etc.) does not matter.
+            - As long as this method correctly returns log-probabilities,
+              the meta-learning algorithms will operate properly.
+        """
+        raise NotImplementedError

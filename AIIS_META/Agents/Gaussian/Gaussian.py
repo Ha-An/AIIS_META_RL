@@ -4,118 +4,183 @@ import torch.nn as nn
 from torch.distributions.normal import Normal
 from torch.distributions.independent import Independent
 from torch.func import functional_call
-from typing import Sequence, Type, List, Dict, Optional, Tuple, Callable
+from typing import Dict, Tuple
 from AIIS_META.Utils.utils import *
 from AIIS_META.Agents.base import BaseAgent
-import time
+
 
 class GaussianAgent(BaseAgent):
     """
-    ... (주석 동일) ...
+    Gaussian Policy for continuous control tasks (functional version)
+    ----------------------------------------------------------------
+    - Designed for meta-RL frameworks such as MAML and ProMP.
+    - Can be evaluated with parameter dictionaries (functional) or
+      as a standard PyTorch module (stateful).
     """
+
     def __init__(self,
                  mlp,
                  gamma: float = 0.99,
                  learn_std: bool = True,
                  init_std: float = 1.0,
                  min_std: float = 1e-6,
-                 state_dependent_std: bool = False,
-                 has_value_fn: bool = False):
-        super().__init__(mlp, gamma,
-                         has_value_fn=has_value_fn)
+                 state_dependent_std: bool = False):
+        """
+        Args:
+            mlp (nn.Module): Mean network (outputs action mean)
+            gamma (float): Discount factor for RL
+            learn_std (bool): Whether log_std is learnable
+            init_std (float): Initial standard deviation
+            min_std (float): Minimum allowed standard deviation
+            state_dependent_std (bool): If True, std depends on state (not constant)
+        """
+        super().__init__(mlp, gamma)
 
         self.mlp = mlp
         self.gamma = gamma
         self.state_dependent_std = bool(state_dependent_std)
-        if self.state_dependent_std:
-            print("Warning: state_dependent_std=True 로직은 functional_call에 맞게 별도 수정이 필요할 수 있습니다.")
 
+        if self.state_dependent_std:
+            print("Warning: state_dependent_std=True may require separate handling "
+                  "to remain compatible with functional_call.")
+
+        # Numerical safety clamp for std
         self.min_log_std = torch.log(torch.tensor(min_std))
         init_log_std = float(torch.log(torch.tensor(init_std)))
-        p = nn.Parameter(torch.full((self.mlp.output_dim,), init_log_std), requires_grad=True)
+
+        # log_std registered as parameter (per action dimension)
+        p = nn.Parameter(torch.full((self.mlp.output_dim,), init_log_std),
+                         requires_grad=learn_std)
         self.register_parameter("log_std", p)
         self.log_std = p
 
-    # --- [★추가★] ---
-    def set_adapted_params(self, params: Optional[Dict[str, torch.Tensor]]):
-        """
-        (Stateful) get_actions가 사용할 adapted 파라미터를 
-        모듈 내부에 저장합니다.
-        
-        Args:
-            params (Dict): theta_prime에서 반환된 파라미터 딕셔너리.
-                           None으로 설정하면 다시 기본 파라미터를 사용합니다.
-        """
-        self.adapted_params = params
-    # --- [★추가★] ---
-
-    # ---------------- build distribution (functional) ----------------
-    # 이 함수는 'params'를 필수로 받습니다. (변경 없음)
+    # ==========================================================
+    # Build Gaussian distribution (Functional)
+    # ==========================================================
     def distribution(self, obs: torch.Tensor,
                      params: Dict[str, torch.Tensor]) -> Independent:
         """
-        (Functional) 'params' 딕셔너리를 *반드시* 사용하여 분포를 생성합니다.
+        Construct the Gaussian distribution given a parameter dictionary.
+
+        This method supports functional parameter usage — no internal
+        weights are accessed directly; everything is read from 'params'.
+
+        Args:
+            obs (torch.Tensor): Observation tensor.
+            params (Dict[str, torch.Tensor]): Parameter dictionary
+                (keys must include 'mlp.*' and 'log_std').
+
+        Returns:
+            torch.distributions.Independent: Gaussian policy distribution.
         """
-        device, dtype = module_device_dtype(self.mlp) 
+        device, dtype = module_device_dtype(self.mlp)
         obs = torch.as_tensor(obs, device=device, dtype=dtype)
 
-        mlp_params = {k.removeprefix('mlp.'): v 
-                      for k, v in params.items() 
-                      if k.startswith('mlp.')}
+        # Extract parameters that belong to the MLP submodule
+        mlp_params = {
+            k.removeprefix('mlp.'): v
+            for k, v in params.items()
+            if k.startswith('mlp.')
+        }
+
+        # Compute mean from the functional forward of the MLP
         mean = functional_call(self.mlp, mlp_params, (obs,))
+
+        # Retrieve and clamp log_std for numerical stability
         log_std_unclamped = params['log_std']
-        
         log_std = torch.clamp(log_std_unclamped, min=self.min_log_std)
         std = torch.max(torch.exp(log_std), torch.exp(self.min_log_std))
 
+        # Ensure correct tensor type and device
         std = to_tensor(std, device=device)
         mean = to_tensor(mean, device=device)
+
+        # Build multivariate Gaussian with independent dimensions
         base = Normal(mean, std)
         return Independent(base, 1)
 
-    # ---------------- act (Stateful) ----------------
+    # ==========================================================
+    # Action sampling (Fully Functional)
+    # ==========================================================
     @torch.no_grad()
-    # --- [★변경★] ---
-    # 'params' 인자를 제거합니다.
-    def get_actions(self, obs: torch.Tensor, deterministic: bool = False) -> Tuple[torch.Tensor, Dict[str, torch.Tensor]]:
+    def get_actions(self,
+                    obs: torch.Tensor,
+                    params: Dict[str, torch.Tensor],   # Functional parameter dictionary
+                    deterministic: bool = False,
+                    post_update: bool = False
+                    ) -> Tuple[torch.Tensor, Dict[str, torch.Tensor]]:
         """
-        (Stateful) 모듈의 '현재' 파라미터를 사용하여 행동을 샘플링합니다.
-        - self.adapted_params가 설정되어 있으면, 그것을 사용합니다. (Post-update)
-        - None이면, self.named_parameters()를 사용합니다. (Pre-update)
-        """
-        
-        # 1. 사용할 파라미터를 결정
-        if self.adapted_params is not None:
-            # Post-update 모드: 저장된 adapted 파라미터 사용
-            current_params = self.adapted_params
-        else:
-            # Pre-update 모드: 모듈의 기본 파라미터 사용
-            current_params = dict(self.named_parameters())
-        # --- [★변경★] ---
+        Sample actions using the provided parameter dictionary.
 
-        # 2. functional distribution 호출 (그래디언트 추적 안 함)
-        dist = self.distribution(obs, params=current_params) 
-        
+        This function supports both:
+        - Pre-update sampling (using meta-parameters)
+        - Post-update sampling (using adapted task-specific parameters)
+
+        Args:
+            obs (torch.Tensor): Observations from the environment.
+            params (Dict[str, torch.Tensor]): Parameter dictionary for this evaluation.
+            deterministic (bool): If True, use the mean (no sampling).
+            post_update (bool): If True, indicates sampling after inner adaptation.
+
+        Returns:
+            Tuple[
+                torch.Tensor,  # Sampled actions
+                List[List[Dict[str, torch.Tensor]]]  # Agent info containing log-probs
+            ]
+        """
+        # Select which parameters to use
+        if post_update:
+            # Use the provided (adapted) parameters
+            current_params = params
+        else:
+            # Use the agent's current meta-parameters
+            current_params = dict(self.named_parameters())
+
+        # Build distribution from the selected parameter set
+        dist = self.distribution(obs, params=current_params)
+
+        # Sample or take mean depending on mode
         if deterministic:
             action = dist.mean
         else:
-            action = dist.rsample()
-        
-        mean = dist.mean
-        log_std = torch.log(dist.base_dist.scale)
+            action = dist.rsample()  # Reparameterized sampling for differentiability
+
+        # Compute log-probabilities
         logp = dist.log_prob(action)
-        
-        agent_info = [[dict(logp=logp[task_idx][rollout_idx]) for rollout_idx in range(len(logp[task_idx]))] for task_idx in range(self.num_tasks)]
+
+        # Construct structured agent_info:
+        # agent_info[task_idx][rollout_idx] = {"logp": log_prob_value}
+        agent_info = [
+            [
+                dict(logp=logp[task_idx][rollout_idx])
+                for rollout_idx in range(len(logp[task_idx]))
+            ]
+            for task_idx in range(self.num_tasks)
+        ]
+
         return action, agent_info
-    
-    # ---------------- log_prob (Functional) ----------------
-    # 이 함수는 'params'를 필수로 받습니다. (변경 없음)
-    def log_prob(self, obs: torch.Tensor, actions: torch.Tensor, 
+
+    # ==========================================================
+    # Log-probability evaluation (Functional)
+    # ==========================================================
+    def log_prob(self,
+                 obs: torch.Tensor,
+                 actions: torch.Tensor,
                  params: Dict[str, torch.Tensor]) -> torch.Tensor:
         """
-        (Functional) Loss 계산을 위해 'params'를 반드시 사용합니다.
+        Compute the log-probabilities of given actions under the policy
+        specified by 'params'.
+
+        Used in both inner and outer losses (functional, differentiable).
+
+        Args:
+            obs (torch.Tensor): Observations
+            actions (torch.Tensor): Actions
+            params (Dict[str, torch.Tensor]): Parameter dictionary
+
+        Returns:
+            torch.Tensor: Log-probability values
         """
         dist = self.distribution(obs, params=params)
         logp = dist.log_prob(actions)
-        
         return logp

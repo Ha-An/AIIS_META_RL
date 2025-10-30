@@ -1,14 +1,12 @@
 # promp.py
 # -*- coding: utf-8 -*-
 from __future__ import annotations
-import copy
 from typing import Dict, List, Tuple, Optional, Any
 from collections import OrderedDict
 import torch
 from torch.utils.tensorboard import SummaryWriter
-import torch.optim as optim
 from .base import MAML_BASE
-
+import AIIS_META.Utils.utils as utils
 class VPG_MAML(MAML_BASE):
     """
     Proximal Meta-Policy Search (PyTorch)
@@ -106,9 +104,9 @@ class VPG_MAML(MAML_BASE):
         surrs = []
         dev = next(self.agent.parameters()).device
         
-        actions = self._to_tensor(batchs["actions"], dev, torch.float32)
-        obs = self._to_tensor(batchs["observations"], dev, torch.float32)
-        adv = self._to_tensor(batchs["advantages"], dev, torch.float32)
+        actions = utils.to_tensor(batchs["actions"], dev)
+        obs = utils.to_tensor(batchs["observations"], dev)
+        adv = utils.to_tensor(batchs["advantages"], dev)
         logp_old = batchs["agent_info"]["logp"] 
         
         # [변경!] self.agent.get_outer_log_probs 호출을
@@ -175,7 +173,7 @@ class VPG_MAML(MAML_BASE):
                 
                 # 4c. [정상 동작]
                 #    step=0일 때, 'params'는 그래프에 연결된 'current_params_theta'가 됨
-                new_adapted_params = self.theta_prime(
+                new_adapted_params = self._theta_prime(
                     batch, 
                     params=adapted_params_list[task_id]
                 )
@@ -199,3 +197,66 @@ class VPG_MAML(MAML_BASE):
 
         # 6. 최종 파라미터 딕셔너리 리스트와 샘플 반환
         return adapted_params_list, last_paths
+    
+    def outer_loop(self,
+                paths: List[Dict], # 'post_update_paths'가 전달됨
+                adapted_params_list: List[Dict[str, torch.Tensor]]): # '최종' 파라미터 리스트
+        
+        # 'outer_iters'는 PPO의 에포크처럼
+        # '동일한' post-update 배치(paths)에 대해 메타-옵티마이저를 여러 번 스텝하는 용도
+        for itr in range(self.outer_iters):
+            loss_outs = []
+            
+            for task_id in range(self.num_tasks):
+                batch = paths[task_id] # post-update 배치 사용
+                
+                # [★핵심 수정★]
+                # inner_loop가 반환한 '최종' adapted params를 가져옴
+                if itr == 0:
+                    final_adapted_params = adapted_params_list[task_id]
+                
+                else:
+                    final_adapted_params = self._theta_prime(batch, OrderedDict(self.agent.named_parameters()))
+                
+                # [★핵심 제거★]
+                # 'if itr != 0:' 블록 전체를 제거합니다.
+                # inner-step은 'inner_loop'에서 이미 완료되었습니다.
+                
+                # '최종' 파라미터로 outer_obj 계산
+                loss = self.outer_obj(final_adapted_params, batch)
+                loss_outs.append(loss)
+                
+            mean_loss_out = sum(loss_outs)/len(loss_outs)
+            
+            # 2) meta-파라미터(self.agent.parameters)에 대해 미분
+            self.optimizer.zero_grad()
+            mean_loss_out.backward() # (그래프가 inner_loop를 거쳐 원본 파라미터까지 연결됨)
+            self.optimizer.step()
+    
+    def _theta_prime(self, batch: dict, params: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
+            """
+            ... (주석 동일) ...
+            """
+            surr = self.inner_obj(batch, params=params) 
+            
+            grads = torch.autograd.grad(
+                surr,
+                self.agent.parameters(),
+                create_graph=True
+            )
+            
+            adapted_params = OrderedDict()
+            
+            for (name, p), g in zip(self.agent.named_parameters(), grads):
+                if g is None:
+                    adapted_params[name] = p
+                    continue
+                
+                # [★핵심 수정★]
+                # self.alpha (float) 대신 learnable step size 딕셔너리를 사용
+                # step = self.alpha # [변경 전]
+                step = self.inner_step_sizes[self._safe_key(name)] # [변경 후]
+                
+                adapted_params[name] = p - step * g 
+
+            return adapted_params   

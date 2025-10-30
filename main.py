@@ -15,7 +15,7 @@ def main(params):
                        np.prod(env.action_space.shape),
                     hidden_layers = params["Layers"])
     
-    agent = MetaGaussianAgent(mlp = mlp, num_tasks=params["num_task"], learn_std = False)
+    agent = MetaGaussianAgent(mlp = mlp, num_tasks=params["num_task"], learn_std = params["learn_std"])
     
     meta_algo = ProMP(env = env, max_path_length = params["max_path_length"],
                     agent = agent, alpha = params["alpha"], beta = params["beta"],
@@ -47,6 +47,7 @@ if __name__ == "__main__":
         "discount": 0.99,
         "gae_lambda": 1,
         "parallel": True,
+        "learn_std": True,
         "device":torch.device("cpu")
     }
     main(params)

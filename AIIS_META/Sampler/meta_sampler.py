@@ -129,8 +129,8 @@ class MetaSampler(Sampler):
                         observations=np.asarray(running_paths[idx]["observations"]),
                         actions=np.asarray(running_paths[idx]["actions"]),
                         rewards=np.asarray(running_paths[idx]["rewards"]),
-                        env_infos=utils.stack_tensor_dict_list(running_paths[idx]["env_infos"]),
-                        agent_info=utils.stack_tensor_dict_torch(running_paths[idx]["agent_info"]),))
+                        env_infos=utils.stack_envs(running_paths[idx]["env_infos"]),
+                        agent_info=utils.stack_agent_infos(running_paths[idx]["agent_info"]),))
                     new_samples += len(running_paths[idx]["rewards"])
                     running_paths[idx] = _get_empty_running_paths_dict()
 

@@ -1,59 +1,86 @@
-# Meta_Gaussian.py  (수정본)
+# Meta_Gaussian.py  (Revised)
 import torch
 from torch.distributions.independent import Independent
 from typing import List, Dict, Optional, Tuple
 from AIIS_META.Utils.utils import *
-from .Gaussian import GaussianAgent  # 수정된 GaussianAgent 임포트
-import torch.optim as optim
+from .Gaussian import GaussianAgent  # Import the modified base GaussianAgent
+
 
 class MetaGaussianAgent(GaussianAgent):
+    """
+    Meta-level Gaussian Policy for Meta-RL algorithms (e.g., ProMP, MAML)
+    --------------------------------------------------------------------
+    This class extends the standard GaussianAgent to support parameter dictionaries 
+    (used in meta-learning contexts where parameters are functionally updated per task).
+    """
+
     def __init__(self, num_tasks: int, *args, **kwargs):
+        """
+        Args:
+            num_tasks (int): Number of parallel meta-tasks
+            *args, **kwargs: Passed to base GaussianAgent constructor
+        """
         super().__init__(*args, **kwargs)
         self.num_tasks = num_tasks
-        self._pre_update_mode = True
-        print("gaussian policy ready")
-
-    def set_pre_update_mode(self, flag: bool = True):
-        self._pre_update_mode = flag
-        if flag:
-            self.policies_params_vals = None
+        self._pre_update_mode = True  # Flag for pre-/post-update policy usage
+        print("Meta-Gaussian policy ready")
 
     @torch.no_grad()
-    # 'params' 딕셔너리를 필수로 받습니다.
-    def get_actions(self, obs: torch.Tensor, 
-                  params: Dict[str, torch.Tensor], # <--- ★이 인자가 필수!
-                  deterministic: bool = False, post_update = False) -> Tuple[torch.Tensor, Dict[str, torch.Tensor]]:
+    def get_actions(self,
+                    obs: torch.Tensor,
+                    params: Dict[str, torch.Tensor],   # <--- Required: parameter dictionary
+                    deterministic: bool = False,
+                    post_update: bool = False
+                    ) -> Tuple[torch.Tensor, Dict[str, torch.Tensor]]:
         """
-        (Fully Functional) 제공된 'params' 딕셔너리를 사용하여 행동을 샘플링.
+        Samples actions using a provided parameter dictionary (params).
+
+        This method is designed to work in a fully functional way:
+        instead of relying on the module’s internal parameters,
+        it uses the given 'params' dictionary (used for inner/outer loop separation).
+
+        Args:
+            obs (torch.Tensor): Observations for each task or rollout batch.
+            params (Dict[str, torch.Tensor]): Dictionary of parameters 
+                (task-specific adapted parameters if post-update, 
+                 otherwise current meta-parameters).
+            deterministic (bool): If True, use the mean action (no exploration).
+            post_update (bool): Whether to use adapted (post-inner-loop) parameters.
+
+        Returns:
+            Tuple[
+                torch.Tensor,                    # Sampled actions tensor
+                List[List[Dict[str, torch.Tensor]]]  # Agent info with log-probs
+            ]
         """
+        # 1. Choose which parameters to use (pre-update vs post-update)
         if post_update:
-            # 1. 'params'를 'distribution'에 직접 전달
+            # Use the task-specific adapted parameter dictionary
             current_params = params
         else:
+            # Use the policy's current (meta) parameters
             current_params = dict(self.named_parameters())
 
+        # 2. Build the Gaussian distribution using current parameters
         dist = self.distribution(obs, params=current_params)
-        
+
+        # 3. Sample actions
         if deterministic:
             action = dist.mean
         else:
-            action = dist.rsample()
-        
-        logp = dist.log_prob(action)
-        
-        agent_info = [[dict(logp=logp[task_idx][rollout_idx]) for rollout_idx in range(len(logp[task_idx]))] for task_idx in range(self.num_tasks)]
-        return action, agent_info
+            action = dist.rsample()  # reparameterized sample (keeps differentiability)
 
-    ### 2. log_prob_by_params의 'params'도 필수로 변경 ###
-    def log_prob_by_params(self, obses, actions, 
-                           params: Dict[str, torch.Tensor], 
-                           deterministic: bool = False):
-        """
-        (Functional) 부모 클래스의 functional distribution을 호출합니다.
-        반드시 'params' 딕셔너리를 사용해야 합니다.
-        """
-        # params 인자를 부모의 distribution 메서드로 전달
-        dist = self.distribution(obses, params=params)
-        log_ps = dist.log_prob(actions)
-    
-        return log_ps
+        # 4. Compute log-probability of sampled actions
+        logp = dist.log_prob(action)
+
+        # 5. Build agent_info for each task and rollout
+        #    agent_info[task][rollout] = {"logp": <log_prob>}
+        agent_info = [
+            [
+                dict(logp=logp[task_idx][rollout_idx])
+                for rollout_idx in range(len(logp[task_idx]))
+            ]
+            for task_idx in range(self.num_tasks)
+        ]
+
+        return action, agent_info

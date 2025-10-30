@@ -154,7 +154,7 @@ class SampleProcessor(object):
         rewards = np.concatenate([path["rewards"] for path in paths])
         returns = np.concatenate([path["returns"] for path in paths])
         advantages = np.concatenate([path["advantages"] for path in paths])
-        env_infos = utils.concat_tensor_dict_list([path["env_infos"] for path in paths])
-        agent_info = utils.concat_tensor_dict_tensor([path["agent_info"] for path in paths])
+        env_infos = utils.concat_envs([path["env_infos"] for path in paths])
+        agent_info = utils.concat_agernt_infos([path["agent_info"] for path in paths])
         return observations, actions, rewards, returns, advantages, env_infos, agent_info
 

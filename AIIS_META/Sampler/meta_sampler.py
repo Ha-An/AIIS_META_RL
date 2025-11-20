@@ -154,7 +154,13 @@ class MetaSampler(Sampler):
 
         assert len(agent_info) == self.num_tasks * self.envs_per_task == len(env_infos)
         return agent_info, env_infos
-
+    
+    def close(self):
+        """
+        vec_env가 프로세스를 쓰는 경우(Parallel) worker들을 정리한다.
+        """
+        if hasattr(self, "vec_env") and hasattr(self.vec_env, "close"):
+            self.vec_env.close()
 
 def _get_empty_running_paths_dict():
     return dict(observations=[], actions=[], rewards=[], env_infos=[], agent_info=[])

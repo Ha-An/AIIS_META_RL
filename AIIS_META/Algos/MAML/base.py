@@ -166,39 +166,98 @@ class MAML_BASE(nn.Module):
         """
         raise NotImplementedError
 
-    def learn(self, epochs: int):
+    def learn(self, epochs: int, callback=None, fine_tune: bool = False):
         """
         Full meta-training orchestration.
-        For each epoch:
-          1. Sample new task distributions
-          2. Run inner-loop adaptation for each task
-          3. Run outer-loop optimization to update meta-parameters
-        """
-        for epoch in range(epochs):
-            print
-            # Refresh sampled tasks
-            self.sampler.update_tasks()
 
-            # Inner loop: returns adapted parameter dictionaries & processed trajectories
+        fine_tune = False (기본값):
+        - 매 epoch마다 task 리샘플(self.sampler.update_tasks())
+        - inner_loop + outer_loop (기존 ProMP 메타 학습)
+
+        fine_tune = True:
+        - task는 바깥에서 이미 설정되어 있다고 가정 (env.set_task(...) 등)
+        - self.sampler.update_tasks() 호출 안 함
+        - inner_loop만 돌리고, 나온 adapted 파라미터를 self.agent에 덮어써서
+            에폭을 거치면서 계속 적응(fine-tuning)만 진행 (outer_loop는 호출 안 함)
+
+        callback:
+        - None 이 아니면, 학습이 모두 끝난 후
+            callback(reward_history: List[float]) 로 호출됨.
+        """
+        reward_history = []  # 에폭별 reward 저장
+
+        for epoch in range(epochs):
+            # ===== 1) Task 업데이트 =====
+            if not fine_tune:
+                # 메타 학습 모드에서는 매 epoch마다 새로운 task 샘플링
+                self.sampler.update_tasks()
+            # fine_tune 모드에서는 env.set_task(...)로 이미 고정해두었다고 보고
+            # 여기서 task 리샘플을 안 함
+
+            # ===== 2) Inner loop =====
             adapted_params_list, paths = self.inner_loop(epoch)
 
-            # Logging and reporting
+            # ===== 3) Logging and reporting =====
             logging_infos = self.env.report_scalar(paths, self.rollout_per_task)
 
+            # 텐서보드 로깅
             for key in logging_infos.keys():
                 if isinstance(logging_infos[key], (int, float, np.generic, torch.Tensor)):
                     self.writer.add_scalar(f"{key}", logging_infos[key], global_step=epoch)
-                    
-
                 elif isinstance(logging_infos[key], dict):
                     self.writer.add_scalars(f"{key}", logging_infos[key], global_step=epoch)
-
                 else:
                     print("This API Support only int, float, numpy, torch, dictionary types for logging.")
 
+            # reward 하나 뽑아서 history에 저장
+            reward_value = None
 
-            print("Outer Learning Start")
-            
+            # 1) 대표적인 키들 먼저 시도
+            for k in ["AverageReturn", "AverageReward", "Return", "Reward"]:
+                if k in logging_infos:
+                    reward_value = logging_infos[k]
+                    break
 
-            # Outer loop: optimize meta-parameters
-            self.outer_loop(paths, adapted_params_list)
+            # 2) 위 키들이 없으면, scalar 값 중 첫 번째 사용
+            if reward_value is None:
+                for v in logging_infos.values():
+                    if isinstance(v, (int, float, np.generic, torch.Tensor)):
+                        reward_value = v
+                        break
+
+            # 3) 최종적으로 찾았으면 float로 변환해서 저장
+            if reward_value is not None:
+                if isinstance(reward_value, torch.Tensor):
+                    reward_value = reward_value.item()
+                reward_history.append(float(reward_value))
+
+            # ===== 4) 업데이트 방식 분기 =====
+            if fine_tune:
+                # ---------- FINE-TUNE 모드 ----------
+                print("Fine-tune (inner-only) update")
+
+                # 보통 fine-tune은 num_tasks=1일 때 쓰는 걸 가정
+                # inner_loop에서 나온 최종 adapted 파라미터를 agent에 덮어쓰기
+                with torch.no_grad():
+                    if self.num_tasks == 1:
+                        adapted = adapted_params_list[0]
+                    else:
+                        # num_tasks>1이면 task별 파라미터를 평균내서 쓸 수도 있음
+                        adapted = {}
+                        for name, _ in self.agent.named_parameters():
+                            adapted[name] = sum(p[name] for p in adapted_params_list) / len(adapted_params_list)
+
+                    for name, param in self.agent.named_parameters():
+                        param.copy_(adapted[name].detach())
+
+                # outer_loop는 호출하지 않음 (메타 파라미터에 대한 학습 X)
+
+            else:
+                # ---------- META-TRAIN 모드 ----------
+                print("Outer Learning Start")
+                # Outer loop: optimize meta-parameters (θ)
+                self.outer_loop(paths, adapted_params_list)
+
+        # ===== 모든 epoch 끝난 뒤 callback 호출 =====
+        if callback is not None:
+            callback(reward_history)

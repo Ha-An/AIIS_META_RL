@@ -187,10 +187,8 @@ class VPG_MAML(MAML_BASE):
         last_paths = self.sample_processor.process_samples(last_paths)
         
         # 4. 리포트
-        reward, cost_dict, _ = self.env.report_scalar(last_paths)
-        self.writer.add_scalar("Reward", reward, global_step=epoch)
-        self.writer.add_scalars("Costs",cost_dict, global_step=epoch)
-        print(f"Epochs: {epoch+1}'s Reward:{reward}")
+        reward_avg = [sum(path['rewards'])/(self.rollout_per_task*len(last_paths)) for path in last_paths]
+        print(f"Epoch {epoch+1}: Reward: {sum(reward_avg)}")
         
         # 5. clip epsilon anneal
         self.anneal_coeff *= self.anneal_factor
@@ -260,3 +258,10 @@ class VPG_MAML(MAML_BASE):
                 adapted_params[name] = p - step * g 
 
             return adapted_params   
+    
+    def close(self):
+        """
+        MetaSampler 안의 vec_env를 정리(특히 parallel worker 종료)한다.
+        """
+        if hasattr(self, "sampler") and hasattr(self.sampler, "close"):
+            self.sampler.close()

@@ -300,3 +300,10 @@ class ProMP(MAML_BASE):
             elif v > high:
                 new_coeff[i] = new_coeff[i] * 2.0
         self.inner_kl_coeff = new_coeff
+
+    def close(self):
+        """
+        MetaSampler 안의 vec_env를 정리(특히 parallel worker 종료)한다.
+        """
+        if hasattr(self, "sampler") and hasattr(self.sampler, "close"):
+            self.sampler.close()

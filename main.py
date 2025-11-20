@@ -31,6 +31,8 @@ def main(params):
     
     meta_algo.learn(params["epochs"])
     torch.save(meta_algo.state_dict(), f"{SAVED_MODEL_PATH}/saved_model")
+    
+    meta_algo.close()
 if __name__ == "__main__":
     params = {
         "Layers":[64, 64, 64], # layers of Network

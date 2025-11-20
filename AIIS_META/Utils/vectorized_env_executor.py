@@ -158,6 +158,25 @@ class MetaParallelEnvExecutor(object):
         for remote in self.remotes:
             remote.send(('reset', None))
         return sum([remote.recv() for remote in self.remotes], [])
+    
+    def close(self):
+        # Send close command to all workers
+        for remote in self.remotes:
+            try:
+                remote.send(('close', None))
+            except:
+                pass  # remote already dead
+
+        # Close remotes
+        for remote in self.remotes:
+            try:
+                remote.close()
+            except:
+                pass
+
+        # Join worker processes
+        for p in self.ps:
+            p.join(timeout=1.0)
 
     def set_tasks(self, tasks=None):
         """

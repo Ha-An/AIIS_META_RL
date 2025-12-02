@@ -7,4 +7,4 @@ pip install pandas</br>
 pip install matplotlib</br>
 ## FlowChart
 
-<img width="852" height="692" alt="meta-package_without_envs drawio (3)" src="https://github.com/user-attachments/assets/67d7ef9e-b339-4bb9-a1f6-a9fb6620019e" />
+<img width="2048" height="1428" alt="image" src="https://github.com/user-attachments/assets/82df120f-57af-4177-ac45-c75ab4f2a3c4" />

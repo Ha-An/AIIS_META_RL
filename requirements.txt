@@ -1,0 +1,34 @@
+# ============================================================
+# AIIS_META_RL Project Requirements
+# ============================================================
+# This project requires Python 3.9+
+# Create virtual environment: conda create -n aiis_meta_rl python=3.9
+# Activate environment: conda activate aiis_meta_rl
+# Install requirements: pip install -r requirements.txt
+# ============================================================
+
+# Deep Learning & PyTorch
+# For CPU only (recommended for this project)
+torch==2.8.0
+torchvision==0.23.0
+torchaudio==2.8.0
+
+# For GPU support (CUDA 11.8), uncomment the line below and remove the above:
+# torch @ https://download.pytorch.org/whl/cu118/torch-2.8.0%2Bcu118-cp39-cp39-win_amd64.whl
+
+# Scientific Computing
+numpy>=2.0.2
+scipy>=1.13.1
+
+# Environment & RL Libraries
+simpy>=4.1.1              # Discrete event simulation
+gym>=0.26.2              # Legacy RL environment (deprecated but used in project)
+gymnasium>=1.1.1         # Modern replacement for Gym
+pyprind>=2.11.3          # Progress bar utility
+
+# Data Processing & Visualization
+pandas>=2.3.3            # Data manipulation
+matplotlib>=3.9.4        # Plotting and visualization
+
+# Machine Learning Utilities
+tensorboard>=2.15.0      # TensorFlow logging and visualization

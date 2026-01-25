@@ -80,3 +80,19 @@ AIIS_META_RL/
 ## 📝 License
 
 This project is based on ProMP and updates it with modern deep learning libraries.
+
+---
+
+## 📧 Contact
+
+**Primary Contact:**
+- **Name**: Yosep Oh (Ha-An)
+- **Email**: yosepoh@hanyang.ac.kr
+- **Department**: Department of Industrial and Management Engineering
+- **Institution**: Hanyang University ERICA, South Korea
+
+**Research Group:**
+- **Lab**: AIIS Lab (Artificial Intelligence for Industrial Systems)
+- **Website**: [https://sites.google.com/view/ha-an/](https://sites.google.com/view/ha-an/)
+
+For inquiries about this project or collaboration opportunities, please feel free to reach out!

@@ -38,17 +38,17 @@ def discount_cumsum(x, discount):
     return scipy.signal.lfilter([1], [1, float(-discount)], x[::-1], axis=0)[::-1]
 
 def module_device_dtype(module):
-    # 1) 파라미터에서 추론
+    # 1) Infer from parameters
     it = module.parameters()
     first = next(it, None)
     if first is not None:
         return first.device, first.dtype
-    # 2) 버퍼에서 추론(예: running_mean 등)
+    # 2) Infer from buffers (e.g., running_mean)
     itb = module.buffers()
     firstb = next(itb, None)
     if firstb is not None:
         return firstb.device, firstb.dtype
-    # 3) 아무 것도 없으면 기본값
+    # 3) Fallback to default
     return torch.device("cpu"), torch.get_default_dtype()
 
 def concat_envs(env_dict_lst):
@@ -129,11 +129,11 @@ def shift_advantages_to_positive(advantages):
     return (advantages - np.min(advantages)) + 1e-8
 
 def to_numpy(x, *, dtype=np.float32):
-    """Tensor/리스트/튜플/스칼라를 안전하게 numpy로 변환."""
+    """Safely convert tensor/list/tuple/scalar to numpy."""
     if isinstance(x, torch.Tensor):
         return x.detach().cpu().numpy().astype(dtype, copy=False)
     if isinstance(x, (list, tuple)):
-        # 내부에 텐서/스칼라 섞여 있어도 ok
+        # Nested tensors/scalars are OK
         return np.asarray([to_numpy(v, dtype=dtype) for v in x], dtype=dtype)
     if isinstance(x, (int, float, np.number)):
         return np.asarray(x, dtype=dtype)
@@ -141,11 +141,11 @@ def to_numpy(x, *, dtype=np.float32):
         return x.astype(dtype, copy=False)
     if x is None:
         return None
-    # dict나 기타 타입은 호출부에서 따로 처리
+    # dict or other types should be handled by the caller
     raise TypeError(f"to_numpy: unsupported type {type(x)}")
 
 def dict_to_numpy(d, *, dtype=np.float32):
-    """dict의 값들을 numpy로 변환(값이 텐서/스칼라인 경우). 중첩 dict도 처리."""
+    """Convert dict values to numpy when values are tensors/scalars. Handles nested dicts."""
     out = {}
     for k, v in d.items():
         if isinstance(v, dict):
@@ -153,6 +153,6 @@ def dict_to_numpy(d, *, dtype=np.float32):
         elif isinstance(v, (torch.Tensor, np.ndarray, list, tuple, int, float, np.number)):
             out[k] = to_numpy(v, dtype=dtype)
         else:
-            # 문자열 등은 그대로 둠
+            # Keep strings and other types as-is
             out[k] = v
     return out

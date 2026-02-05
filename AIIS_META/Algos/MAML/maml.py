@@ -11,14 +11,14 @@ class VPG_MAML(MAML_BASE):
     """
     Proximal Meta-Policy Search (PyTorch)
       - Inner:  -(ratio * A).mean()
-      - Outer:  PPO-clip + λ * KL(old||new)   (λ는 step별 계수 평균)
-      - KL(old||new) 추정: E_old[ logp_old - logp_new ]
+      - Outer:  PPO-clip + KL(old||new) penalty
+      - KL(old||new) approx: E_old[ logp_old - logp_new ]
     """
 
     def __init__(self,
                  env: Any,      #Gym Environment
                  max_path_length: int,      # max path length
-                 agent,     # agent nn.Module (get_outer_actions: logp 반환)
+                 agent,     # agent nn.Module (returns logp)
                  alpha,
                  beta,
                  baseline,      # baseline(Cal Advantage)
@@ -32,12 +32,13 @@ class VPG_MAML(MAML_BASE):
                  target_kl_diff: float = 0.01,      # Target KL
                  init_inner_kl_penalty: float = 1e-2,       # Start KL-Penalty (η)
                  adaptive_inner_kl_penalty: bool = False,       # Use KL-Penalty adaptive
-                 anneal_factor: float = 1.0,    # 1.0이면 고정, <1.0이면 점감
+                 anneal_factor: float = 1.0,    # 1.0 = fixed, <1.0 = decay
                  discount: float = 0.99,        # Gamma
                  gae_lambda: float = 1.0,       # lambda of GAE
                  normalize_adv: bool = True,        # Nomalizing Advantage
                  loss_type: str = "log_likelihood",
-                 device: Optional[torch.device] = None):
+                 device: Optional[torch.device] = None,
+                 action_log_interval: int = 100):
         # initial setting
         super().__init__(
             env, max_path_length, agent, alpha, beta, tensor_log, baseline,
@@ -45,7 +46,8 @@ class VPG_MAML(MAML_BASE):
             outer_iters, parallel, clip_eps=clip_eps,
             init_inner_kl_penalty = init_inner_kl_penalty,
             discount=discount, gae_lambda=gae_lambda,
-            normalize_adv=normalize_adv, device=device
+            normalize_adv=normalize_adv, device=device,
+            action_log_interval=action_log_interval
         )
         self.clip_eps = float(clip_eps)
         self.target_kl_diff = float(target_kl_diff)
@@ -53,7 +55,6 @@ class VPG_MAML(MAML_BASE):
         self.anneal_factor = float(anneal_factor)
         self.anneal_coeff = 1.0
         self.writer = SummaryWriter(log_dir=tensor_log)
-        # step별 KL penalty 계수/최근 KL
         self.inner_kl_coeff = torch.full(
             (inner_grad_steps,), float(init_inner_kl_penalty),
             dtype=torch.float32, device=self.device
@@ -65,7 +66,6 @@ class VPG_MAML(MAML_BASE):
         self.inner_kls = []
         self.alpha = alpha
 
-        # inner 적응용 에이전트 복사본(태스크별)
         self.old_agent = None
         self.inner_loss_type = loss_type
     # ---------- surrogate ----------
@@ -96,10 +96,9 @@ class VPG_MAML(MAML_BASE):
         return -surr.mean()
 
    # ---------- Inner objective ----------
-    # def inner_obj(self, batchs: dict) -> torch.Tensor: # [변경 전]
-    def inner_obj(self, batchs: dict, params: Dict[str, torch.Tensor]) -> torch.Tensor: # [변경 후]
+    def inner_obj(self, batchs: dict, params: Dict[str, torch.Tensor]) -> torch.Tensor:
         """
-        ... (주석 동일) ...
+        ... (comments omitted) ...
         """
         surrs = []
         dev = next(self.agent.parameters()).device
@@ -109,10 +108,7 @@ class VPG_MAML(MAML_BASE):
         adv = utils.to_tensor(batchs["advantages"], dev)
         logp_old = batchs["agent_info"]["logp"] 
         
-        # [변경!] self.agent.get_outer_log_probs 호출을
-        # functional 'log_prob' 호출로 변경
-        # logp_new = self.agent.get_outer_log_probs(obs, actions) # [변경 전]
-        logp_new = self.agent.log_prob(obs, actions, params=params) # [변경 후]
+        logp_new = self.agent.log_prob(obs, actions, params=params)
         
         surrs = self._surrogate(logp_new=logp_new,
                                 logp_old=logp_old,
@@ -121,12 +117,11 @@ class VPG_MAML(MAML_BASE):
 
     # ---------- Outer objective ----------
     def outer_obj(self,
-                  # adapted_agent,               # [변경 전]
-                  adapted_params: Dict[str, torch.Tensor], # [변경 후]
+                  adapted_params: Dict[str, torch.Tensor],
                   batch: Dict[str, Any],
                   ) -> torch.Tensor:
         """
-        ... (주석 동일) ...
+        ... (comments omitted) ...
         """
         dev = next(self.agent.parameters()).device
         obs  = torch.as_tensor(batch["observations"], device=dev, dtype=torch.float32)
@@ -135,9 +130,7 @@ class VPG_MAML(MAML_BASE):
         
         logp_old = torch.as_tensor(batch["agent_info"]["logp"], device=dev, dtype=torch.float32).detach()
 
-        # [변경!] adapted_agent 모듈 호출을 functional 'log_prob' 호출로 변경
-        # logp_new = adapted_agent.get_outer_log_probs(obs, acts) # [변경 전]
-        logp_new = self.agent.log_prob(obs, acts, params=adapted_params) # [변경 후]
+        logp_new = self.agent.log_prob(obs, acts, params=adapted_params)
 
         surr = self._surrogate(logp_new=logp_new,
                                logp_old=logp_old,
@@ -145,34 +138,24 @@ class VPG_MAML(MAML_BASE):
         return surr
 
 
-    # ---------- Inner loop (태스크별 적응 + KL 모니터링/anneal) ----------
     def inner_loop(self, epoch) -> Tuple[List[Dict[str, torch.Tensor]], List]:
         """
-        반환: (적응된 파라미터 딕셔너리 리스트, 마지막(post_update) 수집 경로들)
+        Returns: (adapted parameter dict list, final post-update trajectories)
         """
         
-        # 1. (ProMP용) KL(old||new) 계산을 위한 'old_params' (그래프 분리 O - 정상)
         self.old_params = {k: v.detach().clone() for k, v in self.agent.named_parameters()}
         
-        # 2. (MAML용) 2차-그래디언트 계산의 '시작점'이 될 원본 파라미터(θ)
         current_params_theta = OrderedDict(self.agent.named_parameters())
         
-        # 3. [★수정★] 'adapted_params_list'를 'current_params_theta' (그래프 연결됨)로 초기화
         adapted_params_list = [OrderedDict(current_params_theta) for _ in range(self.num_tasks)]
 
-        # 4. Inner-loop (파라미터 교체)
         for step in range(self.inner_grad_steps):
-            # 4a. 현재 adapted_params_list (θ, θ', ...)를 사용하여 샘플 수집
-            #     (step=0일 때는 원본 파라미터(θ)로 샘플링)
             paths = self.sampler.obtain_samples(adapted_params_list, post_update=False) 
             paths = self.sample_processor.process_samples(paths)
 
-            # 4b. 태스크별 inner-step
             for task_id in range(self.num_tasks):
                 batch = paths[task_id]
                 
-                # 4c. [정상 동작]
-                #    step=0일 때, 'params'는 그래프에 연결된 'current_params_theta'가 됨
                 new_adapted_params = self._theta_prime(
                     batch, 
                     params=adapted_params_list[task_id]
@@ -180,80 +163,65 @@ class VPG_MAML(MAML_BASE):
                 
                 adapted_params_list[task_id] = new_adapted_params
 
-        # --- Inner loop 종료 ---
         
-        # 3. [변경!] Post-update 샘플링 (루프 밖에서 최종 adapted_params 사용)
         last_paths = self.sampler.obtain_samples(adapted_params_list, post_update=True)
         last_paths = self.sample_processor.process_samples(last_paths)
         
-        # 4. 리포트
         reward_avg = [sum(path['rewards'])/(self.rollout_per_task*len(last_paths)) for path in last_paths]
         print(f"Epoch {epoch+1}: Reward: {sum(reward_avg)}")
         
         # 5. clip epsilon anneal
         self.anneal_coeff *= self.anneal_factor
 
-        # 6. 최종 파라미터 딕셔너리 리스트와 샘플 반환
         return adapted_params_list, last_paths
     
     def outer_loop(self,
-                paths: List[Dict], # 'post_update_paths'가 전달됨
-                adapted_params_list: List[Dict[str, torch.Tensor]]): # '최종' 파라미터 리스트
+                paths: List[Dict], # post_update_paths provided
+                adapted_params_list: List[Dict[str, torch.Tensor]]): # final adapted params list
         
-        # 'outer_iters'는 PPO의 에포크처럼
-        # '동일한' post-update 배치(paths)에 대해 메타-옵티마이저를 여러 번 스텝하는 용도
         for itr in range(self.outer_iters):
             loss_outs = []
             
             for task_id in range(self.num_tasks):
-                batch = paths[task_id] # post-update 배치 사용
+                batch = paths[task_id] # use post-update batch
                 
-                # [★핵심 수정★]
-                # inner_loop가 반환한 '최종' adapted params를 가져옴
                 if itr == 0:
                     final_adapted_params = adapted_params_list[task_id]
                 
                 else:
                     final_adapted_params = self._theta_prime(batch, OrderedDict(self.agent.named_parameters()))
                 
-                # [★핵심 제거★]
-                # 'if itr != 0:' 블록 전체를 제거합니다.
-                # inner-step은 'inner_loop'에서 이미 완료되었습니다.
                 
-                # '최종' 파라미터로 outer_obj 계산
                 loss = self.outer_obj(final_adapted_params, batch)
                 loss_outs.append(loss)
                 
             mean_loss_out = sum(loss_outs)/len(loss_outs)
             
-            # 2) meta-파라미터(self.agent.parameters)에 대해 미분
             self.optimizer.zero_grad()
-            mean_loss_out.backward() # (그래프가 inner_loop를 거쳐 원본 파라미터까지 연결됨)
+            mean_loss_out.backward() # gradients flow through inner_loop to base params
             self.optimizer.step()
     
     def _theta_prime(self, batch: dict, params: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
             """
-            ... (주석 동일) ...
+            ... (comments omitted) ...
             """
             surr = self.inner_obj(batch, params=params) 
             
             grads = torch.autograd.grad(
                 surr,
-                self.agent.parameters(),
+                list(params.values()),
                 create_graph=True
             )
             
             adapted_params = OrderedDict()
             
-            for (name, p), g in zip(self.agent.named_parameters(), grads):
+            for (name, p), g in zip(params.items(), grads):
                 if g is None:
                     adapted_params[name] = p
                     continue
                 
-                # [★핵심 수정★]
-                # self.alpha (float) 대신 learnable step size 딕셔너리를 사용
-                # step = self.alpha # [변경 전]
-                step = self.inner_step_sizes[self._safe_key(name)] # [변경 후]
+                step = self.inner_step_sizes[self._safe_key(name)]
+                step = torch.clamp(step, min=0.0, max=self.inner_step_size_max)
                 
                 adapted_params[name] = p - step * g 
 
@@ -261,7 +229,7 @@ class VPG_MAML(MAML_BASE):
     
     def close(self):
         """
-        MetaSampler 안의 vec_env를 정리(특히 parallel worker 종료)한다.
+        Clean up vec_env in MetaSampler (especially parallel workers).
         """
         if hasattr(self, "sampler") and hasattr(self.sampler, "close"):
             self.sampler.close()

@@ -507,13 +507,13 @@ def DEMAND_QTY_FUNC(scenario):
 
 def SUP_LEAD_TIME_FUNC(lead_time_dict):
     if lead_time_dict["Dist_Type"] == "UNIFORM":
-        # Lead time의 최대 값은 Action Space의 최대 값과 곱하였을 때 INVEN_LEVEL_MAX의 2배를 넘지 못하게 설정 해야 함 (INTRANSIT이 OVER되는 현상을 방지 하기 위해서)
+        # Max lead time should be set so that max_leadtime * max_action does not exceed 2 * INVEN_LEVEL_MAX (to prevent INTRANSIT overflow).
         # SUP_LEAD_TIME must be an integer
         return random.randint(lead_time_dict['min'], lead_time_dict['max'])
     elif lead_time_dict["Dist_Type"] == "GAUSSIAN":
         mean = lead_time_dict['mean']
         std = lead_time_dict['std']
-        # Lead time의 최대 값은 Action Space의 최대 값과 곱하였을 때 INVEN_LEVEL_MAX의 2배를 넘지 못하게 설정 해야 함 (INTRANSIT이 OVER되는 현상을 방지 하기 위해서)
+        # Max lead time should be set so that max_leadtime * max_action does not exceed 2 * INVEN_LEVEL_MAX (to prevent INTRANSIT overflow).
         lead_time = np.random.normal(mean, std)
         if lead_time < 0:
             lead_time = 0

@@ -52,7 +52,7 @@ class MetaSampler(Sampler):
         else:
             self.vec_env = MetaIterativeEnvExecutor(env, self.num_tasks, self.envs_per_task, self.max_path_length)
 
-        # 캐시: 액션 차원
+        # Cache: action dimension
         self._act_dim = int(np.prod(self.env.action_space.shape))
         self._num_envs = int(self.num_tasks * self.envs_per_task)
 
@@ -96,10 +96,11 @@ class MetaSampler(Sampler):
             t = time.time()
             obs_per_task = np.split(np.asarray(obses), self.num_tasks)
             
-            if post_update:
-                actions, agent_info = self.policy.get_actions(obs_per_task, params=params_lst[n_samples//self.envs_per_task], post_update = True)
-            else:
-                actions, agent_info = self.agent.get_actions(obs_per_task, params=None)
+            actions, agent_info = self.policy.get_actions(
+                obs_per_task,
+                params=params_lst,
+                post_update=post_update
+            )
             agent_time += time.time() - t
 
             # step environments
@@ -157,11 +158,10 @@ class MetaSampler(Sampler):
     
     def close(self):
         """
-        vec_env가 프로세스를 쓰는 경우(Parallel) worker들을 정리한다.
+        Clean up vec_env workers (especially for parallel execution).
         """
         if hasattr(self, "vec_env") and hasattr(self.vec_env, "close"):
             self.vec_env.close()
 
 def _get_empty_running_paths_dict():
     return dict(observations=[], actions=[], rewards=[], env_infos=[], agent_info=[])
-

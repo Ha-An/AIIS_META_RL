@@ -26,18 +26,15 @@ if "MainProcess" == current_process().name:
     # Define parent dir's path
     current_dir = os.path.dirname(__file__)
     parent_dir = os.path.dirname(current_dir)
-    PAR_FOLDER = os.path.join(
-            parent_dir, "Tensorboard_logs")
+    meta_root = os.path.join(parent_dir, "AIIS_META")
+    PAR_FOLDER = os.path.join(meta_root, "Tensorboard_logs")
     # Define dir's path
     if RL_EXPERIMENT:
         TENSORFLOW_LOGS = DEFINE_FOLDER(PAR_FOLDER)
         # Saved Model
-        SAVED_MODEL_PATH = DEFINE_FOLDER(os.path.join(parent_dir, "Saved_Model"))
+        SAVED_MODEL_PATH = DEFINE_FOLDER(os.path.join(meta_root, "Saved_model"))
         SAVE_MODEL = True
-        HYPERPARAMETER_LOG = DEFINE_FOLDER(os.path.join(parent_dir, "Optuna_result"))
-    
-        CSV_LOG = DEFINE_FOLDER(os.path.join(
-                parent_dir, "FEW_SHOT_RESULT"))
+        HYPERPARAMETER_LOG = None
+        CSV_LOG = None
     else:
-        CSV_LOG = DEFINE_FOLDER(os.path.join(
-                parent_dir, "SSPOLICY_RESULT"))
+        CSV_LOG = None

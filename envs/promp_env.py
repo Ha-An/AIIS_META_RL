@@ -125,7 +125,7 @@ class MetaEnv(Env):
             for _ in range(len(I[ASSEMBLY_PROCESS])):
                 if I[ASSEMBLY_PROCESS][_]["TYPE"] == "Material":
                     # Set action as predicted value
-                    I[ASSEMBLY_PROCESS][_]["LOT_SIZE_ORDER"] = min(max(np.round(action[i]),0),10) # 양수 상한
+                    I[ASSEMBLY_PROCESS][_]["LOT_SIZE_ORDER"] = min(max(np.round(action[i]),0),10)  # clamp to non-negative upper bound
                     i += 1
                     test_actions.append(I[ASSEMBLY_PROCESS][_]['LOT_SIZE_ORDER'])
 
@@ -176,9 +176,9 @@ class MetaEnv(Env):
         self.daily_events.clear()
 
         # Check if the simulation is done
-        done = self.simpy_env.now >= SIM_TIME * 24  # 예: SIM_TIME일 이후에 종료
+        done = self.simpy_env.now >= SIM_TIME * 24  # e.g., terminate after SIM_TIME days
 
-        info = {}  # 추가 정보 (필요에 따라 사용)
+        info = {}  # extra info (unused)
 
         return next_state, reward, done, self.cost_dict
     

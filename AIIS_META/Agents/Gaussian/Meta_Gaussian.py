@@ -28,7 +28,7 @@ class MetaGaussianAgent(GaussianAgent):
     @torch.no_grad()
     def get_actions(self,
                     obs: torch.Tensor,
-                    params: Dict[str, torch.Tensor],   # <--- Required: parameter dictionary
+                    params: Optional[object],   # dict or list/tuple of dicts
                     deterministic: bool = False,
                     post_update: bool = False
                     ) -> Tuple[torch.Tensor, Dict[str, torch.Tensor]]:
@@ -53,34 +53,40 @@ class MetaGaussianAgent(GaussianAgent):
                 List[List[Dict[str, torch.Tensor]]]  # Agent info with log-probs
             ]
         """
-        # 1. Choose which parameters to use (pre-update vs post-update)
-        if post_update:
-            # Use the task-specific adapted parameter dictionary
-            current_params = params
+        # If params is a list/tuple, apply per-task parameters.
+        if isinstance(params, (list, tuple)):
+            actions = []
+            logps = []
+            for task_idx, task_params in enumerate(params):
+                obs_task = obs[task_idx]
+                dist = self.distribution(obs_task, params=task_params)
+                if deterministic:
+                    action = dist.mean
+                else:
+                    action = dist.rsample()
+                logp = dist.log_prob(action)
+                actions.append(action)
+                logps.append(logp)
+
+            action = torch.stack(actions, dim=0)
+            logp = torch.stack(logps, dim=0)
         else:
-            # Use the policy's current (meta) parameters
-            current_params = dict(self.named_parameters())
+            # If params is None or a single dict, fall back to that.
+            current_params = params if params is not None else dict(self.named_parameters())
+            dist = self.distribution(obs, params=current_params)
+            if deterministic:
+                action = dist.mean
+            else:
+                action = dist.rsample()
+            logp = dist.log_prob(action)
 
-        # 2. Build the Gaussian distribution using current parameters
-        dist = self.distribution(obs, params=current_params)
-
-        # 3. Sample actions
-        if deterministic:
-            action = dist.mean
-        else:
-            action = dist.rsample()  # reparameterized sample (keeps differentiability)
-
-        # 4. Compute log-probability of sampled actions
-        logp = dist.log_prob(action)
-
-        # 5. Build agent_info for each task and rollout
-        #    agent_info[task][rollout] = {"logp": <log_prob>}
+        # Build agent_info for each task and rollout
         agent_info = [
             [
                 dict(logp=logp[task_idx][rollout_idx])
                 for rollout_idx in range(len(logp[task_idx]))
             ]
-            for task_idx in range(self.num_tasks)
+            for task_idx in range(len(logp))
         ]
 
         return action, agent_info

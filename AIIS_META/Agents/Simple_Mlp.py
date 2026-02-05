@@ -5,10 +5,10 @@ import torch.nn as nn
 
 class SimpleMLP(nn.Module):
   """
-  가장 단순한 MLP:
-    - hidden_sizes 길이만큼 Linear 쌓기
-    - hidden 활성함수는 전 레이어 공통 적용
-    - 출력층 별도 Linear + (옵션) 출력 활성함수
+  Simplest MLP:
+    - Stack Linear layers for each hidden size
+    - Use the same activation for all hidden layers
+    - Final output layer is a separate Linear (optional output activation)
   """
   def __init__(self,
                 input_dim: int,
@@ -34,8 +34,8 @@ class SimpleMLP(nn.Module):
                       obs: torch.Tensor,
                       params: Optional[Dict[str, torch.Tensor]] = None) -> torch.Tensor:
       """
-      A2C/PPO 등 critic이 있는 정책에서만 구현.
-      없는 경우 NotImplementedError 발생.
+      Implemented only for policies with a critic (e.g., A2C/PPO).
+      Raises NotImplementedError if not available.
       """
       if not self.has_value_fn:
           raise NotImplementedError("Policy has no value_function.")

@@ -160,7 +160,7 @@ class Procurement:
             # order_size = ORDER_QTY[self.item_id-1]
             #order_size = 2
             '''
-            기존 코드
+            legacy code
             '''
             order_size = I[ASSEMBLY_PROCESS][self.item_id]["LOT_SIZE_ORDER"] 
             # if order_size > 0 and inventory.on_hand_inventory < REORDER_LEVEL:

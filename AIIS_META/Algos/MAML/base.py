@@ -53,12 +53,13 @@ class MAML_BASE(nn.Module):
                  gae_lambda: float = 1.0,
                  normalize_adv=True,
                  trainable_learning_rate=True,
-                 device=torch.device('cuda')):
+                 device=torch.device('cuda'),
+                 action_log_interval: int = 100):
         super().__init__()
 
         # ----- Core components -----
         self.agent = agent
-        self.optimizer = optim.Adam(self.agent.parameters(), lr=beta)
+        self.agent.to(device)
         self.env = env
 
         # ----- Meta parameters -----
@@ -70,6 +71,9 @@ class MAML_BASE(nn.Module):
         self.device = device
         self.alpha = alpha
         self.beta = beta
+        # Upper bound for learnable inner step sizes to prevent runaway growth
+        self.inner_step_size_max = 0.05
+        self.action_log_interval = max(1, int(action_log_interval))
 
         # KL divergence penalty coefficients (inner adaptation regularization)
         self.inner_kl_coeff = torch.full(
@@ -96,8 +100,13 @@ class MAML_BASE(nn.Module):
             parallel=parallel
         )
 
-        # Create per-parameter inner learning rates (α_i)
         self._create_step_size_tensors(trainable_learning_rate)
+
+        # Optimizer (include inner step sizes if trainable)
+        opt_params = list(self.agent.parameters())
+        if trainable_learning_rate:
+            opt_params.extend(list(self.inner_step_sizes.parameters()))
+        self.optimizer = optim.Adam(opt_params, lr=beta)
 
     # =============================================================
     # Hooks to be implemented by subclasses (ProMP, MAML, etc.)
@@ -168,31 +177,25 @@ class MAML_BASE(nn.Module):
 
     def learn(self, epochs: int, callback=None, fine_tune: bool = False):
         """
-        Full meta-training orchestration.
+        Full meta-training loop.
 
-        fine_tune = False (기본값):
-        - 매 epoch마다 task 리샘플(self.sampler.update_tasks())
-        - inner_loop + outer_loop (기존 ProMP 메타 학습)
+        fine_tune=False:
+        - Resample tasks each epoch
+        - Run inner_loop + outer_loop (meta-training)
 
-        fine_tune = True:
-        - task는 바깥에서 이미 설정되어 있다고 가정 (env.set_task(...) 등)
-        - self.sampler.update_tasks() 호출 안 함
-        - inner_loop만 돌리고, 나온 adapted 파라미터를 self.agent에 덮어써서
-            에폭을 거치면서 계속 적응(fine-tuning)만 진행 (outer_loop는 호출 안 함)
+        fine_tune=True:
+        - Assume task is fixed externally (env.set_task)
+        - Run inner_loop only and overwrite agent params with adapted params
+        - Skip outer_loop (no meta-parameter updates)
 
         callback:
-        - None 이 아니면, 학습이 모두 끝난 후
-            callback(reward_history: List[float]) 로 호출됨.
+        - If provided, called after training with reward_history.
         """
-        reward_history = []  # 에폭별 reward 저장
+        reward_history = []  # Store per-epoch reward
 
         for epoch in range(epochs):
-            # ===== 1) Task 업데이트 =====
             if not fine_tune:
-                # 메타 학습 모드에서는 매 epoch마다 새로운 task 샘플링
                 self.sampler.update_tasks()
-            # fine_tune 모드에서는 env.set_task(...)로 이미 고정해두었다고 보고
-            # 여기서 task 리샘플을 안 함
 
             # ===== 2) Inner loop =====
             adapted_params_list, paths = self.inner_loop(epoch)
@@ -200,7 +203,6 @@ class MAML_BASE(nn.Module):
             # ===== 3) Logging and reporting =====
             logging_infos = self.env.report_scalar(paths, self.rollout_per_task)
 
-            # 텐서보드 로깅
             for key in logging_infos.keys():
                 if isinstance(logging_infos[key], (int, float, np.generic, torch.Tensor)):
                     self.writer.add_scalar(f"{key}", logging_infos[key], global_step=epoch)
@@ -209,40 +211,50 @@ class MAML_BASE(nn.Module):
                 else:
                     print("This API Support only int, float, numpy, torch, dictionary types for logging.")
 
-            # reward 하나 뽑아서 history에 저장
+            # Log inner step size statistics (mean/std) per epoch
+            if hasattr(self, "inner_step_sizes"):
+                with torch.no_grad():
+                    vals = [p.detach().reshape(-1) for p in self.inner_step_sizes.values()]
+                    if len(vals) > 0:
+                        all_vals = torch.cat(vals)
+                        self.writer.add_scalar("MetaRL/InnerStepSizeMean", float(all_vals.mean().item()), global_step=epoch)
+                        self.writer.add_scalar("MetaRL/InnerStepSizeStd", float(all_vals.std(unbiased=False).item()), global_step=epoch)
+
+            # Action distribution (aggregate over all tasks)
+            if epoch % self.action_log_interval == 0:
+                try:
+                    actions = np.concatenate([p["actions"] for p in paths], axis=0)
+                except Exception:
+                    actions = None
+                if actions is not None and actions.size > 0:
+                    actions_flat = actions.reshape(-1)
+                    self.writer.add_histogram("MetaRL/Actions", actions_flat, global_step=epoch)
+
             reward_value = None
 
-            # 1) 대표적인 키들 먼저 시도
-            for k in ["AverageReturn", "AverageReward", "Return", "Reward"]:
+            for k in ["AverageReturn", "AverageReward", "Return", "Reward", "reward"]:
                 if k in logging_infos:
                     reward_value = logging_infos[k]
                     break
 
-            # 2) 위 키들이 없으면, scalar 값 중 첫 번째 사용
             if reward_value is None:
                 for v in logging_infos.values():
                     if isinstance(v, (int, float, np.generic, torch.Tensor)):
                         reward_value = v
                         break
 
-            # 3) 최종적으로 찾았으면 float로 변환해서 저장
             if reward_value is not None:
                 if isinstance(reward_value, torch.Tensor):
                     reward_value = reward_value.item()
                 reward_history.append(float(reward_value))
 
-            # ===== 4) 업데이트 방식 분기 =====
             if fine_tune:
-                # ---------- FINE-TUNE 모드 ----------
                 print("Fine-tune (inner-only) update")
 
-                # 보통 fine-tune은 num_tasks=1일 때 쓰는 걸 가정
-                # inner_loop에서 나온 최종 adapted 파라미터를 agent에 덮어쓰기
                 with torch.no_grad():
                     if self.num_tasks == 1:
                         adapted = adapted_params_list[0]
                     else:
-                        # num_tasks>1이면 task별 파라미터를 평균내서 쓸 수도 있음
                         adapted = {}
                         for name, _ in self.agent.named_parameters():
                             adapted[name] = sum(p[name] for p in adapted_params_list) / len(adapted_params_list)
@@ -250,14 +262,11 @@ class MAML_BASE(nn.Module):
                     for name, param in self.agent.named_parameters():
                         param.copy_(adapted[name].detach())
 
-                # outer_loop는 호출하지 않음 (메타 파라미터에 대한 학습 X)
 
             else:
-                # ---------- META-TRAIN 모드 ----------
                 print("Outer Learning Start")
-                # Outer loop: optimize meta-parameters (θ)
+                self._current_epoch = epoch
                 self.outer_loop(paths, adapted_params_list)
 
-        # ===== 모든 epoch 끝난 뒤 callback 호출 =====
         if callback is not None:
             callback(reward_history)

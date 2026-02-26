@@ -1,0 +1,186 @@
+Gym has been unmaintained since 2022 and does not support NumPy 2.0 amongst other critical functionality.
+Please upgrade to Gymnasium, the maintained drop-in replacement of Gym, or contact the authors of your software and request that they upgrade.
+Users of this version of Gym should be able to simply replace 'import gym' with 'import gymnasium as gym' in the vast majority of cases.
+See the migration guide at https://gymnasium.farama.org/introduction/migration_guide/ for additional information.
+Gym has been unmaintained since 2022 and does not support NumPy 2.0 amongst other critical functionality.
+Please upgrade to Gymnasium, the maintained drop-in replacement of Gym, or contact the authors of your software and request that they upgrade.
+Users of this version of Gym should be able to simply replace 'import gym' with 'import gymnasium as gym' in the vast majority of cases.
+See the migration guide at https://gymnasium.farama.org/introduction/migration_guide/ for additional information.Gym has been unmaintained since 2022 and does not support NumPy 2.0 amongst other critical functionality.
+Please upgrade to Gymnasium, the maintained drop-in replacement of Gym, or contact the authors of your software and request that they upgrade.
+Users of this version of Gym should be able to simply replace 'import gym' with 'import gymnasium as gym' in the vast majority of cases.
+See the migration guide at https://gymnasium.farama.org/introduction/migration_guide/ for additional information.Gym has been unmaintained since 2022 and does not support NumPy 2.0 amongst other critical functionality.
+Please upgrade to Gymnasium, the maintained drop-in replacement of Gym, or contact the authors of your software and request that they upgrade.
+Users of this version of Gym should be able to simply replace 'import gym' with 'import gymnasium as gym' in the vast majority of cases.
+See the migration guide at https://gymnasium.farama.org/introduction/migration_guide/ for additional information.
+
+
+Gym has been unmaintained since 2022 and does not support NumPy 2.0 amongst other critical functionality.
+Please upgrade to Gymnasium, the maintained drop-in replacement of Gym, or contact the authors of your software and request that they upgrade.
+Users of this version of Gym should be able to simply replace 'import gym' with 'import gymnasium as gym' in the vast majority of cases.
+See the migration guide at https://gymnasium.farama.org/introduction/migration_guide/ for additional information.
+Gym has been unmaintained since 2022 and does not support NumPy 2.0 amongst other critical functionality.
+Please upgrade to Gymnasium, the maintained drop-in replacement of Gym, or contact the authors of your software and request that they upgrade.
+Users of this version of Gym should be able to simply replace 'import gym' with 'import gymnasium as gym' in the vast majority of cases.
+See the migration guide at https://gymnasium.farama.org/introduction/migration_guide/ for additional information.
+Gym has been unmaintained since 2022 and does not support NumPy 2.0 amongst other critical functionality.
+Please upgrade to Gymnasium, the maintained drop-in replacement of Gym, or contact the authors of your software and request that they upgrade.
+Users of this version of Gym should be able to simply replace 'import gym' with 'import gymnasium as gym' in the vast majority of cases.
+See the migration guide at https://gymnasium.farama.org/introduction/migration_guide/ for additional information.
+Gym has been unmaintained since 2022 and does not support NumPy 2.0 amongst other critical functionality.
+Please upgrade to Gymnasium, the maintained drop-in replacement of Gym, or contact the authors of your software and request that they upgrade.
+Users of this version of Gym should be able to simply replace 'import gym' with 'import gymnasium as gym' in the vast majority of cases.
+See the migration guide at https://gymnasium.farama.org/introduction/migration_guide/ for additional information.
+Gym has been unmaintained since 2022 and does not support NumPy 2.0 amongst other critical functionality.
+Please upgrade to Gymnasium, the maintained drop-in replacement of Gym, or contact the authors of your software and request that they upgrade.
+Users of this version of Gym should be able to simply replace 'import gym' with 'import gymnasium as gym' in the vast majority of cases.
+See the migration guide at https://gymnasium.farama.org/introduction/migration_guide/ for additional information.
+Gym has been unmaintained since 2022 and does not support NumPy 2.0 amongst other critical functionality.
+Please upgrade to Gymnasium, the maintained drop-in replacement of Gym, or contact the authors of your software and request that they upgrade.
+Users of this version of Gym should be able to simply replace 'import gym' with 'import gymnasium as gym' in the vast majority of cases.
+See the migration guide at https://gymnasium.farama.org/introduction/migration_guide/ for additional information.
+Gym has been unmaintained since 2022 and does not support NumPy 2.0 amongst other critical functionality.
+Please upgrade to Gymnasium, the maintained drop-in replacement of Gym, or contact the authors of your software and request that they upgrade.
+Users of this version of Gym should be able to simply replace 'import gym' with 'import gymnasium as gym' in the vast majority of cases.
+See the migration guide at https://gymnasium.farama.org/introduction/migration_guide/ for additional information.
+C:\Github\AIIS_META_RL\AIIS_META\Algos\MAML\promp.py:107: UserWarning: The use of `x.T` on tensors of dimension other than 2 to reverse their shape is deprecated and it will throw an error in a future release. Consider `x.mT` to transpose batches of matrices or `x.permute(*torch.arange(x.ndim - 1, -1, -1))` to reverse the dimensions of a tensor. (Triggered internally at C:\actions-runner\_work\pytorch\pytorch\pytorch\aten\src\ATen\native\TensorShape.cpp:4424.)
+  surr = ratios.T * advs
+Process Process-3:
+Process Process-4:
+Process Process-8:
+Process Process-6:
+Process Process-9:
+Process Process-7:
+Process Process-5:
+Traceback (most recent call last):
+Traceback (most recent call last):
+Traceback (most recent call last):
+Traceback (most recent call last):
+  File "C:\Users\User\anaconda3\envs\aiis_meta_rl\lib\multiprocessing\connection.py", line 312, in _recv_bytes
+    nread, err = ov.GetOverlappedResult(True)
+Traceback (most recent call last):
+Traceback (most recent call last):
+Traceback (most recent call last):
+  File "C:\Users\User\anaconda3\envs\aiis_meta_rl\lib\multiprocessing\connection.py", line 312, in _recv_bytes
+    nread, err = ov.GetOverlappedResult(True)
+  File "C:\Users\User\anaconda3\envs\aiis_meta_rl\lib\multiprocessing\connection.py", line 312, in _recv_bytes
+    nread, err = ov.GetOverlappedResult(True)
+  File "C:\Users\User\anaconda3\envs\aiis_meta_rl\lib\multiprocessing\connection.py", line 312, in _recv_bytes
+    nread, err = ov.GetOverlappedResult(True)
+BrokenPipeError: [WinError 109] 파이프가 끝났습니다
+  File "C:\Users\User\anaconda3\envs\aiis_meta_rl\lib\multiprocessing\connection.py", line 312, in _recv_bytes
+    nread, err = ov.GetOverlappedResult(True)
+  File "C:\Users\User\anaconda3\envs\aiis_meta_rl\lib\multiprocessing\connection.py", line 312, in _recv_bytes
+    nread, err = ov.GetOverlappedResult(True)
+  File "C:\Users\User\anaconda3\envs\aiis_meta_rl\lib\multiprocessing\connection.py", line 312, in _recv_bytes
+    nread, err = ov.GetOverlappedResult(True)
+BrokenPipeError: [WinError 109] 파이프가 끝났습니다
+BrokenPipeError: [WinError 109] 파이프가 끝났습니다
+BrokenPipeError: [WinError 109] 파이프가 끝났습니다
+
+During handling of the above exception, another exception occurred:
+
+BrokenPipeError: [WinError 109] 파이프가 끝났습니다
+BrokenPipeError: [WinError 109] 파이프가 끝났습니다
+BrokenPipeError: [WinError 109] 파이프가 끝났습니다
+
+During handling of the above exception, another exception occurred:
+
+
+During handling of the above exception, another exception occurred:
+
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+
+During handling of the above exception, another exception occurred:
+
+
+During handling of the above exception, another exception occurred:
+
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+Traceback (most recent call last):
+Traceback (most recent call last):
+  File "C:\Users\User\anaconda3\envs\aiis_meta_rl\lib\multiprocessing\process.py", line 315, in _bootstrap
+    self.run()
+Traceback (most recent call last):
+Traceback (most recent call last):
+Traceback (most recent call last):
+  File "C:\Users\User\anaconda3\envs\aiis_meta_rl\lib\multiprocessing\process.py", line 315, in _bootstrap
+    self.run()
+  File "C:\Users\User\anaconda3\envs\aiis_meta_rl\lib\multiprocessing\process.py", line 315, in _bootstrap
+    self.run()
+  File "C:\Users\User\anaconda3\envs\aiis_meta_rl\lib\multiprocessing\process.py", line 315, in _bootstrap
+    self.run()
+  File "C:\Users\User\anaconda3\envs\aiis_meta_rl\lib\multiprocessing\process.py", line 108, in run
+    self._target(*self._args, **self._kwargs)
+  File "C:\Users\User\anaconda3\envs\aiis_meta_rl\lib\multiprocessing\process.py", line 315, in _bootstrap
+    self.run()
+  File "C:\Users\User\anaconda3\envs\aiis_meta_rl\lib\multiprocessing\process.py", line 315, in _bootstrap
+    self.run()
+  File "C:\Users\User\anaconda3\envs\aiis_meta_rl\lib\multiprocessing\process.py", line 315, in _bootstrap
+    self.run()
+  File "C:\Users\User\anaconda3\envs\aiis_meta_rl\lib\multiprocessing\process.py", line 108, in run
+    self._target(*self._args, **self._kwargs)
+  File "C:\Users\User\anaconda3\envs\aiis_meta_rl\lib\multiprocessing\process.py", line 108, in run
+    self._target(*self._args, **self._kwargs)
+  File "C:\Users\User\anaconda3\envs\aiis_meta_rl\lib\multiprocessing\process.py", line 108, in run
+    self._target(*self._args, **self._kwargs)
+  File "C:\Github\AIIS_META_RL\AIIS_META\Utils\vectorized_env_executor.py", line 226, in worker
+    cmd, data = remote.recv()
+  File "C:\Users\User\anaconda3\envs\aiis_meta_rl\lib\multiprocessing\process.py", line 108, in run
+    self._target(*self._args, **self._kwargs)
+  File "C:\Users\User\anaconda3\envs\aiis_meta_rl\lib\multiprocessing\process.py", line 108, in run
+    self._target(*self._args, **self._kwargs)
+  File "C:\Users\User\anaconda3\envs\aiis_meta_rl\lib\multiprocessing\process.py", line 108, in run
+    self._target(*self._args, **self._kwargs)
+  File "C:\Github\AIIS_META_RL\AIIS_META\Utils\vectorized_env_executor.py", line 226, in worker
+    cmd, data = remote.recv()
+  File "C:\Github\AIIS_META_RL\AIIS_META\Utils\vectorized_env_executor.py", line 226, in worker
+    cmd, data = remote.recv()
+  File "C:\Github\AIIS_META_RL\AIIS_META\Utils\vectorized_env_executor.py", line 226, in worker
+    cmd, data = remote.recv()
+  File "C:\Users\User\anaconda3\envs\aiis_meta_rl\lib\multiprocessing\connection.py", line 250, in recv
+    buf = self._recv_bytes()
+  File "C:\Github\AIIS_META_RL\AIIS_META\Utils\vectorized_env_executor.py", line 226, in worker
+    cmd, data = remote.recv()
+  File "C:\Github\AIIS_META_RL\AIIS_META\Utils\vectorized_env_executor.py", line 226, in worker
+    cmd, data = remote.recv()
+  File "C:\Github\AIIS_META_RL\AIIS_META\Utils\vectorized_env_executor.py", line 226, in worker
+    cmd, data = remote.recv()
+  File "C:\Users\User\anaconda3\envs\aiis_meta_rl\lib\multiprocessing\connection.py", line 250, in recv
+    buf = self._recv_bytes()
+  File "C:\Users\User\anaconda3\envs\aiis_meta_rl\lib\multiprocessing\connection.py", line 250, in recv
+    buf = self._recv_bytes()
+  File "C:\Users\User\anaconda3\envs\aiis_meta_rl\lib\multiprocessing\connection.py", line 250, in recv
+    buf = self._recv_bytes()
+  File "C:\Users\User\anaconda3\envs\aiis_meta_rl\lib\multiprocessing\connection.py", line 321, in _recv_bytes
+    raise EOFError
+  File "C:\Users\User\anaconda3\envs\aiis_meta_rl\lib\multiprocessing\connection.py", line 250, in recv
+    buf = self._recv_bytes()
+  File "C:\Users\User\anaconda3\envs\aiis_meta_rl\lib\multiprocessing\connection.py", line 250, in recv
+    buf = self._recv_bytes()
+  File "C:\Users\User\anaconda3\envs\aiis_meta_rl\lib\multiprocessing\connection.py", line 250, in recv
+    buf = self._recv_bytes()
+  File "C:\Users\User\anaconda3\envs\aiis_meta_rl\lib\multiprocessing\connection.py", line 321, in _recv_bytes
+    raise EOFError
+  File "C:\Users\User\anaconda3\envs\aiis_meta_rl\lib\multiprocessing\connection.py", line 321, in _recv_bytes
+    raise EOFError
+  File "C:\Users\User\anaconda3\envs\aiis_meta_rl\lib\multiprocessing\connection.py", line 321, in _recv_bytes
+    raise EOFError
+EOFError
+  File "C:\Users\User\anaconda3\envs\aiis_meta_rl\lib\multiprocessing\connection.py", line 321, in _recv_bytes
+    raise EOFError
+  File "C:\Users\User\anaconda3\envs\aiis_meta_rl\lib\multiprocessing\connection.py", line 321, in _recv_bytes
+    raise EOFError
+  File "C:\Users\User\anaconda3\envs\aiis_meta_rl\lib\multiprocessing\connection.py", line 321, in _recv_bytes
+    raise EOFError
+EOFError
+EOFError
+EOFError
+EOFError
+EOFError
+EOFError

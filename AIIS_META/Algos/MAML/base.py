@@ -194,7 +194,7 @@ class MAML_BASE(nn.Module):
         """
         raise NotImplementedError
 
-    def learn(self, epochs: int, callback=None, fine_tune: bool = False):
+    def learn(self, epochs: int, callback=None, fine_tune: bool = False, epoch_callback=None, start_epoch: int = 0):
         """
         Full meta-training loop.
 
@@ -212,7 +212,8 @@ class MAML_BASE(nn.Module):
         """
         reward_history = []  # Store per-epoch reward
 
-        for epoch in range(epochs):
+        for local_epoch in range(epochs):
+            epoch = int(start_epoch) + local_epoch
             if not fine_tune:
                 self.sampler.update_tasks()
 
@@ -309,6 +310,14 @@ class MAML_BASE(nn.Module):
                 print("Outer Learning Start")
                 self._current_epoch = epoch
                 self.outer_loop(paths, adapted_params_list)
+
+            if epoch_callback is not None:
+                epoch_callback(
+                    epoch=epoch,
+                    algo=self,
+                    paths=paths,
+                    logging_infos=logging_infos,
+                )
 
         if callback is not None:
             callback(reward_history)

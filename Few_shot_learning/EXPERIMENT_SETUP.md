@@ -1,45 +1,32 @@
 Few-shot experiment setup
 =========================
 
-This script runs a fixed, reproducible few-shot evaluation across multiple
-pretrained checkpoints (ProMP, VPG_MAML, PPO) under the same evaluation settings.
+All settings are centralized in `Few_shot_learning/config.py`.
 
-What it does
+Entry points
 ------------
-- Uses `Few_shot_learning/experiment_setup.py`
-- Forces a common `EVAL_CONFIG` (same tasks/rollouts/steps)
-- Switches model paths per experiment
-- Runs a single seed (fixed)
-- Evaluates four scenario cases:
-  - LowDemand_ShortLead
-  - LowDemand_LongLead
-  - HighDemand_ShortLead
-  - HighDemand_LongLead
-- Writes TensorBoard logs under `Few_shot_learning/Tensorboard_logs/<run_name>`
+- `Few_shot_learning/run_batch_random_scenarios.py`
+  - Existing random-scenario batch experiment (5 case families).
+- `Few_shot_learning/run_batch_fixed_scenarios.py`
+  - New fixed-scenario batch experiment (4 fixed scenarios).
+- `Few_shot_learning/experiment_setup.py`
+  - Compatibility wrapper to `run_batch_random_scenarios.py`.
 
 How to run
 ----------
 ```powershell
-python Few_shot_learning/experiment_setup.py
-```
+# Random-scenario batch
+python Few_shot_learning/run_batch_random_scenarios.py
 
-Where logs go
-------------
-- `Few_shot_learning/Tensorboard_logs/ProMP_LowDemand_ShortLead_seed0`
-- `Few_shot_learning/Tensorboard_logs/ProMP_HighDemand_LongLead_seed0`
-- `Few_shot_learning/Tensorboard_logs/VPG_MAML_LowDemand_ShortLead_seed0`
-- `Few_shot_learning/Tensorboard_logs/PPO_HighDemand_ShortLead_seed0`
-- etc.
+# Fixed-scenario batch (4 fixed cases x 30 seeds by default)
+python Few_shot_learning/run_batch_fixed_scenarios.py
+```
 
 What to edit
 ------------
-In `Few_shot_learning/experiment_setup.py`:
-- `EXPERIMENTS`: checkpoint paths and model config overrides
-- `SEEDS`: list of random seeds (currently fixed to one)
-- `CASE_SCENARIOS`: four demand/leadtime cases
-- `EVAL_CONFIG_OVERRIDE`: evaluation settings (fixed across runs)
-
-Notes
------
-- Ensure `MODEL_CONFIG` matches the checkpoint (policy_dist, layers, learn_std).
-- PPO checkpoints are loaded as agent-only; ProMP/VPG_MAML use full state_dict.
+Edit only `Few_shot_learning/config.py`:
+- `EXPERIMENTS`, `SEEDS`
+- `SCENARIO_CASES` and `build_scenario_dist_config(...)` for random-scenario mode
+- `FIXED_SCENARIO_CASES`, `FIXED_SEEDS`, and `build_fixed_scenario_dist_config(...)` for fixed-scenario mode
+- `MODEL_CONFIG`, `EVAL_CONFIG`, `EVAL_CONFIG_OVERRIDE`
+- `COST_BOXPLOT_CONFIG`

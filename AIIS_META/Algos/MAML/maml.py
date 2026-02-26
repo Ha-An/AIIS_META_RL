@@ -4,7 +4,6 @@ from __future__ import annotations
 from typing import Dict, List, Tuple, Optional, Any
 from collections import OrderedDict
 import torch
-from torch.utils.tensorboard import SummaryWriter
 from .base import MAML_BASE
 import AIIS_META.Utils.utils as utils
 class VPG_MAML(MAML_BASE):
@@ -54,7 +53,6 @@ class VPG_MAML(MAML_BASE):
         self.adaptive_inner_kl_penalty = bool(adaptive_inner_kl_penalty)
         self.anneal_factor = float(anneal_factor)
         self.anneal_coeff = 1.0
-        self.writer = SummaryWriter(log_dir=tensor_log)
         self.inner_kl_coeff = torch.full(
             (inner_grad_steps,), float(init_inner_kl_penalty),
             dtype=torch.float32, device=self.device
@@ -231,5 +229,9 @@ class VPG_MAML(MAML_BASE):
         """
         Clean up vec_env in MetaSampler (especially parallel workers).
         """
+        if hasattr(self, "writer") and hasattr(self.writer, "flush"):
+            self.writer.flush()
+        if hasattr(self, "writer") and hasattr(self.writer, "close"):
+            self.writer.close()
         if hasattr(self, "sampler") and hasattr(self.sampler, "close"):
             self.sampler.close()

@@ -55,7 +55,7 @@ I = {
             "MANU_ORDER_CYCLE": 1,
             "INIT_LEVEL": 2,
             "SUP_LEAD_TIME": 1,
-            "HOLD_COST": 1,
+            "HOLD_COST": 0.1,
             "PURCHASE_COST": 2,
             "ORDER_COST_TO_SUP": 1,
             "LOT_SIZE_ORDER": 0
@@ -82,7 +82,7 @@ I = {
             "MANU_ORDER_CYCLE": 1,
             "INIT_LEVEL": 2,
             "SUP_LEAD_TIME": 2,
-            "HOLD_COST": 1,
+            "HOLD_COST": 0.1,
             "PURCHASE_COST": 2,
             "ORDER_COST_TO_SUP": 1,
             "LOT_SIZE_ORDER": 0
@@ -94,7 +94,7 @@ I = {
             "MANU_ORDER_CYCLE": 1,
             "INIT_LEVEL": 4,
             "SUP_LEAD_TIME": 2,
-            "HOLD_COST": 1,
+            "HOLD_COST": 0.1,
             "PURCHASE_COST": 2,
             "ORDER_COST_TO_SUP": 1,
             "LOT_SIZE_ORDER": 0
@@ -106,7 +106,7 @@ I = {
             "MANU_ORDER_CYCLE": 1,
             "INIT_LEVEL": 2,
             "SUP_LEAD_TIME": 2,
-            "HOLD_COST": 1,
+            "HOLD_COST": 0.1,
             "PURCHASE_COST": 2,
             "ORDER_COST_TO_SUP": 1,
             "LOT_SIZE_ORDER": 0
@@ -116,7 +116,7 @@ I = {
             "TYPE": "WIP",
             "NAME": "WIP 1",
             "INIT_LEVEL": 1,
-            "HOLD_COST": 1
+            "HOLD_COST": 0.5,
         }
     },
     "AP3": {
@@ -140,7 +140,7 @@ I = {
             "MANU_ORDER_CYCLE": 1,
             "INIT_LEVEL": 2,
             "SUP_LEAD_TIME": 2,
-            "HOLD_COST": 1,
+            "HOLD_COST": 0.1,
             "PURCHASE_COST": 2,
             "ORDER_COST_TO_SUP": 1,
             "LOT_SIZE_ORDER": 0
@@ -152,7 +152,7 @@ I = {
             "MANU_ORDER_CYCLE": 1,
             "INIT_LEVEL": 4,
             "SUP_LEAD_TIME": 2,
-            "HOLD_COST": 1,
+            "HOLD_COST": 0.1,
             "PURCHASE_COST": 2,
             "ORDER_COST_TO_SUP": 1,
             "LOT_SIZE_ORDER": 0
@@ -164,7 +164,7 @@ I = {
             "MANU_ORDER_CYCLE": 1,
             "INIT_LEVEL": 2,
             "SUP_LEAD_TIME": 2,
-            "HOLD_COST": 1,
+            "HOLD_COST": 0.1,
             "PURCHASE_COST": 2,
             "ORDER_COST_TO_SUP": 1,
             "LOT_SIZE_ORDER": 0
@@ -176,7 +176,7 @@ I = {
             "MANU_ORDER_CYCLE": 1,
             "INIT_LEVEL": 2,
             "SUP_LEAD_TIME": 2,
-            "HOLD_COST": 1,
+            "HOLD_COST": 0.1,
             "PURCHASE_COST": 2,
             "ORDER_COST_TO_SUP": 1,
             "LOT_SIZE_ORDER": 0
@@ -188,7 +188,7 @@ I = {
             "MANU_ORDER_CYCLE": 1,
             "INIT_LEVEL": 2,
             "SUP_LEAD_TIME": 2,
-            "HOLD_COST": 1,
+            "HOLD_COST": 0.1,
             "PURCHASE_COST": 2,
             "ORDER_COST_TO_SUP": 1,
             "LOT_SIZE_ORDER": 0
@@ -198,14 +198,14 @@ I = {
             "TYPE": "WIP",
             "NAME": "WIP 1",
             "INIT_LEVEL": 1,
-            "HOLD_COST": 1
+            "HOLD_COST": 0.5,
         },
         7: {
             "ID": 7,
             "TYPE": "WIP",
             "NAME": "WIP 2",
             "INIT_LEVEL": 1,
-            "HOLD_COST": 1
+            "HOLD_COST": 0.5,
         }
     },
     "AP4": {
@@ -217,10 +217,10 @@ I = {
             "INIT_LEVEL": 0,
             "DEMAND_QUANTITY": 0,
             "HOLD_COST": 1,
-            "SETUP_COST_PRO": 1,
-            "DELIVERY_COST": 1,
+            "SETUP_COST_PRO": 5,
+            "DELIVERY_COST": 2,
             "DUE_DATE": 7,
-            "SHORTAGE_COST_PRO": 200 # default 100
+            "SHORTAGE_COST_PRO": 100
         },
         1: {
             "ID": 1,
@@ -229,9 +229,9 @@ I = {
             "MANU_ORDER_CYCLE": 1,
             "INIT_LEVEL": 1,
             "SUP_LEAD_TIME": 2,
-            "HOLD_COST": 1,
+            "HOLD_COST": 0.1,
             "PURCHASE_COST": 2,
-            "ORDER_COST_TO_SUP": 1,
+            "ORDER_COST_TO_SUP": 3,
             "LOT_SIZE_ORDER": 0
         },
         2: {
@@ -241,9 +241,9 @@ I = {
             "MANU_ORDER_CYCLE": 1,
             "INIT_LEVEL": 2,
             "SUP_LEAD_TIME": 2,
-            "HOLD_COST": 1,
+            "HOLD_COST": 0.1,
             "PURCHASE_COST": 2,
-            "ORDER_COST_TO_SUP": 1,
+            "ORDER_COST_TO_SUP": 3,
             "LOT_SIZE_ORDER": 0
         },
         3: {
@@ -253,9 +253,9 @@ I = {
             "MANU_ORDER_CYCLE": 1,
             "INIT_LEVEL": 1,
             "SUP_LEAD_TIME": 2,
-            "HOLD_COST": 1,
+            "HOLD_COST": 0.1,
             "PURCHASE_COST": 2,
-            "ORDER_COST_TO_SUP": 1,
+            "ORDER_COST_TO_SUP": 3,
             "LOT_SIZE_ORDER": 0
         },
         4: {
@@ -265,9 +265,9 @@ I = {
             "MANU_ORDER_CYCLE": 1,
             "INIT_LEVEL": 1,
             "SUP_LEAD_TIME": 2,
-            "HOLD_COST": 1,
+            "HOLD_COST": 0.1,
             "PURCHASE_COST": 2,
-            "ORDER_COST_TO_SUP": 1,
+            "ORDER_COST_TO_SUP": 3,
             "LOT_SIZE_ORDER": 0
         },
         5: {
@@ -277,9 +277,9 @@ I = {
             "MANU_ORDER_CYCLE": 1,
             "INIT_LEVEL": 1,
             "SUP_LEAD_TIME": 2,
-            "HOLD_COST": 1,
+            "HOLD_COST": 0.1,
             "PURCHASE_COST": 2,
-            "ORDER_COST_TO_SUP": 1,
+            "ORDER_COST_TO_SUP": 3,
             "LOT_SIZE_ORDER": 0
         },
         6: {
@@ -289,9 +289,9 @@ I = {
             "MANU_ORDER_CYCLE": 1,
             "INIT_LEVEL": 1,
             "SUP_LEAD_TIME": 2,
-            "HOLD_COST": 1,
+            "HOLD_COST": 0.1,
             "PURCHASE_COST": 2,
-            "ORDER_COST_TO_SUP": 1,
+            "ORDER_COST_TO_SUP": 3,
             "LOT_SIZE_ORDER": 0
         },
         7: {
@@ -301,9 +301,9 @@ I = {
             "MANU_ORDER_CYCLE": 1,
             "INIT_LEVEL": 1,
             "SUP_LEAD_TIME": 2,
-            "HOLD_COST": 1,
+            "HOLD_COST": 0.1,
             "PURCHASE_COST": 2,
-            "ORDER_COST_TO_SUP": 1,
+            "ORDER_COST_TO_SUP": 3,
             "LOT_SIZE_ORDER": 0
         },
         8: {
@@ -313,9 +313,9 @@ I = {
             "MANU_ORDER_CYCLE": 1,
             "INIT_LEVEL": 2,
             "SUP_LEAD_TIME": 2,
-            "HOLD_COST": 1,
+            "HOLD_COST": 0.1,
             "PURCHASE_COST": 2,
-            "ORDER_COST_TO_SUP": 1,
+            "ORDER_COST_TO_SUP": 3,
             "LOT_SIZE_ORDER": 0
         },
         9: {
@@ -325,9 +325,9 @@ I = {
             "MANU_ORDER_CYCLE": 1,
             "INIT_LEVEL": 1,
             "SUP_LEAD_TIME": 2,
-            "HOLD_COST": 1,
+            "HOLD_COST": 0.1,
             "PURCHASE_COST": 2,
-            "ORDER_COST_TO_SUP": 1,
+            "ORDER_COST_TO_SUP": 3,
             "LOT_SIZE_ORDER": 0
         },
         10: {
@@ -337,9 +337,9 @@ I = {
             "MANU_ORDER_CYCLE": 1,
             "INIT_LEVEL": 1,
             "SUP_LEAD_TIME": 2,
-            "HOLD_COST": 1,
+            "HOLD_COST": 0.1,
             "PURCHASE_COST": 2,
-            "ORDER_COST_TO_SUP": 1,
+            "ORDER_COST_TO_SUP": 3,
             "LOT_SIZE_ORDER": 0
         },
         11: {
@@ -347,14 +347,14 @@ I = {
             "TYPE": "WIP",
             "NAME": "WIP 1",
             "INIT_LEVEL": 1,
-            "HOLD_COST": 1
+            "HOLD_COST": 0.5,
         },
         12: {
             "ID": 12,
             "TYPE": "WIP",
             "NAME": "WIP 2",
             "INIT_LEVEL": 1,
-            "HOLD_COST": 1
+            "HOLD_COST": 0.5,
         }
         ,
         13: {
@@ -362,14 +362,14 @@ I = {
             "TYPE": "WIP",
             "NAME": "WIP 3",
             "INIT_LEVEL": 1,
-            "HOLD_COST": 1
+            "HOLD_COST": 0.5,
         },
         14: {
             "ID": 14,
             "TYPE": "WIP",
             "NAME": "WIP 4",
             "INIT_LEVEL": 1,
-            "HOLD_COST": 1
+            "HOLD_COST": 0.5,
         }
     }
 }
@@ -494,10 +494,18 @@ def DEMAND_QTY_FUNC(scenario):
     # Uniform distribution
     if scenario["Dist_Type"] == "UNIFORM":
         return random.randint(scenario['min'], scenario["max"])
-    # Gaussian distribution
-    elif scenario["Dist_Type"] == "GAUSSIAN":
-        # Gaussian distribution
+    # Normal/Gaussian distribution
+    elif scenario["Dist_Type"] in ("GAUSSIAN", "NORMAL"):
         demand = round(np.random.normal(scenario['mean'], scenario['std']))
+        if demand < 0:
+            return 1
+        elif demand > INVEN_LEVEL_MAX:
+            return INVEN_LEVEL_MAX
+        else:
+            return demand
+    # Poisson distribution
+    elif scenario["Dist_Type"] == "POISSON":
+        demand = int(np.random.poisson(scenario["lam"]))
         if demand < 0:
             return 1
         elif demand > INVEN_LEVEL_MAX:
@@ -510,7 +518,7 @@ def SUP_LEAD_TIME_FUNC(lead_time_dict):
         # Max lead time should be set so that max_leadtime * max_action does not exceed 2 * INVEN_LEVEL_MAX (to prevent INTRANSIT overflow).
         # SUP_LEAD_TIME must be an integer
         return random.randint(lead_time_dict['min'], lead_time_dict['max'])
-    elif lead_time_dict["Dist_Type"] == "GAUSSIAN":
+    elif lead_time_dict["Dist_Type"] in ("GAUSSIAN", "NORMAL"):
         mean = lead_time_dict['mean']
         std = lead_time_dict['std']
         # Max lead time should be set so that max_leadtime * max_action does not exceed 2 * INVEN_LEVEL_MAX (to prevent INTRANSIT overflow).
@@ -521,6 +529,13 @@ def SUP_LEAD_TIME_FUNC(lead_time_dict):
             lead_time = 7
         # SUP_LEAD_TIME must be an integer
         return int(round(lead_time))
+    elif lead_time_dict["Dist_Type"] == "POISSON":
+        lead_time = int(np.random.poisson(lead_time_dict["lam"]))
+        if lead_time < 0:
+            lead_time = 0
+        elif lead_time > 7:
+            lead_time = 7
+        return lead_time
 
 # Validation
 # State space

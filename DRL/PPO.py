@@ -281,6 +281,29 @@ class PPO:
                 elif isinstance(logging_infos[key], dict):
                     self.writer.add_scalars(f"{key}", logging_infos[key], global_step=epoch)
 
+            # Log total cost explicitly for easier TensorBoard tracking.
+            total_cost = None
+            if isinstance(logging_infos.get("cost"), dict):
+                cost_vals = []
+                for v in logging_infos["cost"].values():
+                    if isinstance(v, torch.Tensor):
+                        v = v.item()
+                    if isinstance(v, (int, float, np.generic)):
+                        cost_vals.append(float(v))
+                if cost_vals:
+                    total_cost = float(np.sum(cost_vals))
+            if total_cost is None:
+                for k in ("TotalCost", "total_cost", "cost_total"):
+                    if k in logging_infos:
+                        v = logging_infos[k]
+                        if isinstance(v, torch.Tensor):
+                            v = v.item()
+                        if isinstance(v, (int, float, np.generic)):
+                            total_cost = float(v)
+                            break
+            if total_cost is not None:
+                self.writer.add_scalar("TotalCost", total_cost, global_step=epoch)
+
             # Action distribution (aggregate over all tasks)
             if epoch % self.action_log_interval == 0:
                 try:

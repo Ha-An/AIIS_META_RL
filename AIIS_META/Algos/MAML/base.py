@@ -8,6 +8,24 @@ from AIIS_META.Sampler.meta_sample_processor import MetaSampleProcessor
 from torch.utils.tensorboard import SummaryWriter
 import numpy as np
 
+
+class _NullWriter:
+    def add_scalar(self, *args, **kwargs):
+        return None
+
+    def add_scalars(self, *args, **kwargs):
+        return None
+
+    def add_histogram(self, *args, **kwargs):
+        return None
+
+    def flush(self):
+        return None
+
+    def close(self):
+        return None
+
+
 class MAML_BASE(nn.Module):
     """
     Base class for MAML-style meta-learning algorithms.
@@ -87,7 +105,8 @@ class MAML_BASE(nn.Module):
             gae_lambda=gae_lambda,
             normalize_adv=normalize_adv
         )
-        self.writer = SummaryWriter(log_dir=tensor_log)
+        log_dir = str(tensor_log).strip() if tensor_log is not None else ""
+        self.writer = SummaryWriter(log_dir=log_dir) if log_dir else _NullWriter()
 
         # Meta-sampler for collecting trajectories from multiple tasks
         self.sampler = sampler(
@@ -210,6 +229,29 @@ class MAML_BASE(nn.Module):
                     self.writer.add_scalars(f"{key}", logging_infos[key], global_step=epoch)
                 else:
                     print("This API Support only int, float, numpy, torch, dictionary types for logging.")
+
+            # Log total cost explicitly for easier TensorBoard tracking.
+            total_cost = None
+            if isinstance(logging_infos.get("cost"), dict):
+                cost_vals = []
+                for v in logging_infos["cost"].values():
+                    if isinstance(v, torch.Tensor):
+                        v = v.item()
+                    if isinstance(v, (int, float, np.generic)):
+                        cost_vals.append(float(v))
+                if cost_vals:
+                    total_cost = float(np.sum(cost_vals))
+            if total_cost is None:
+                for k in ("TotalCost", "total_cost", "cost_total"):
+                    if k in logging_infos:
+                        v = logging_infos[k]
+                        if isinstance(v, torch.Tensor):
+                            v = v.item()
+                        if isinstance(v, (int, float, np.generic)):
+                            total_cost = float(v)
+                            break
+            if total_cost is not None:
+                self.writer.add_scalar("TotalCost", total_cost, global_step=epoch)
 
             # Log inner step size statistics (mean/std) per epoch
             if hasattr(self, "inner_step_sizes"):

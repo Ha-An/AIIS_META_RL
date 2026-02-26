@@ -66,7 +66,7 @@ class Inventory:
             # Check if inventory goes negative
             if self.on_hand_inventory < 0:
                 daily_events.append(
-                    f"{present_daytime(self.env.now)}: Shortage of {I[self.item_id]['NAME']}: {self.capacity_limit - self.on_hand_inventory}")
+                    f"{present_daytime(self.env.now)}: Shortage of {I[ASSEMBLY_PROCESS][self.item_id]['NAME']}: {self.capacity_limit - self.on_hand_inventory}")
                 self.on_hand_inventory = 0
 
             self.holding_cost_last_updated = self.env.now
@@ -268,7 +268,6 @@ class Production:
                 daily_events.append(
                     f"{self.env.now+TIME_CORRECTION}: {self.output['NAME']} has been produced                         : 1 units")
                 self.print_limit = True
-                self.print_limit = True
                 yield self.env.timeout(TIME_CORRECTION)  # Time correction
 
 
@@ -293,7 +292,9 @@ class Sales:
         """
         Deliver products to customers and handle shortages if any.
         """
-        yield self.env.timeout(I[ASSEMBLY_PROCESS][self.item_id]["DUE_DATE"] * 24-TIME_CORRECTION/2)  # Time Correction
+        # Reset per-order delivery quantity to avoid carrying over the previous order's value.
+        self.delivery_item = 0
+        yield self.env.timeout(self.due_date * 24 - TIME_CORRECTION/2)  # Time Correction
         product_inventory.holding_cost_last_updated -= TIME_CORRECTION / \
             2  # Cost Update Time Correction
         # Check if products are available for delivery

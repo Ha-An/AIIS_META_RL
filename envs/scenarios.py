@@ -1,93 +1,98 @@
 from envs.config_SimPy import *
-from envs.config_RL import *
-import itertools
 import random
-import numpy as np
-from collections import defaultdict
 
-# 1. Task (Scenario) Sampling Related
+SCENARIO_SAMPLING_DEFAULTS = {
+    "demand_min": 1,
+    "demand_max": 20,
+    "leadtime_min": 1,
+    "leadtime_max": 7,
+    "leadtime_mode": "per_material_random",
+    "num_scenarios": 200,
+}
 
-def _default_demand_dists():
-    demand_uniform_range = [
-        (i, j)
-        for i in range(5, 16)  # Range for demand min values
-        for j in range(i, 16)  # Range for demand max values
-        if i <= j
+
+def _default_demand_dists(demand_min=6, demand_max=12):
+    uniform_dists = [
+        {"Dist_Type": "UNIFORM", "min": i, "max": j}
+        for i in range(demand_min, demand_max + 1)
+        for j in range(i, demand_max + 1)
     ]
-    return [
-        {"Dist_Type": "UNIFORM", "min": min_val, "max": max_val}
-        for min_val, max_val in demand_uniform_range
+    normal_dists = [
+        {"Dist_Type": "NORMAL", "mean": mean, "std": std}
+        for mean in range(demand_min, demand_max + 1)
+        for std in [1, 2, 3]
     ]
-
-
-def _default_leadtime_dists():
-    leadtime_uniform_range = [
-        (i, j)
-        for i in range(1, 5)  # Range for lead time min values
-        for j in range(i, 5)  # Range for lead time max values
-        if i <= j
+    poisson_dists = [
+        {"Dist_Type": "POISSON", "lam": lam}
+        for lam in range(demand_min, demand_max + 1)
     ]
-    return [
-        {"Dist_Type": "UNIFORM", "min": min_val, "max": max_val}
-        for min_val, max_val in leadtime_uniform_range
+    return uniform_dists + normal_dists + poisson_dists
+
+
+def _default_leadtime_dists(leadtime_min=1, leadtime_max=3):
+    uniform_dists = [
+        {"Dist_Type": "UNIFORM", "min": i, "max": j}
+        for i in range(leadtime_min, leadtime_max + 1)
+        for j in range(i, leadtime_max + 1)
     ]
-
-
-def _build_leadtime_profiles(leadtime_dists, leadtime_mode, leadtime_profiles_count, rng):
-    if leadtime_mode == "shared":
-        return [[dist for _ in range(MAT_COUNT)] for dist in leadtime_dists]
-
-    if leadtime_mode == "per_material_random":
-        count = leadtime_profiles_count or len(leadtime_dists)
-        return [
-            [rng.choice(leadtime_dists) for _ in range(MAT_COUNT)]
-            for _ in range(count)
-        ]
-
-    raise ValueError(f"Unknown leadtime_mode: {leadtime_mode}")
+    normal_dists = [
+        {"Dist_Type": "NORMAL", "mean": mean, "std": std}
+        for mean in [x / 2 for x in range(leadtime_min * 2, leadtime_max * 2 + 1)]
+        for std in [0.4, 0.8]
+    ]
+    poisson_dists = [
+        {"Dist_Type": "POISSON", "lam": x / 2}
+        for x in range(leadtime_min * 2, leadtime_max * 2 + 1)
+    ]
+    return uniform_dists + normal_dists + poisson_dists
 
 
 def create_scenarios(
     demand_dists=None,
     leadtime_dists=None,
-    leadtime_mode="per_material_random",
-    leadtime_profiles_count=1,
+    demand_min=None,
+    demand_max=None,
+    leadtime_min=None,
+    leadtime_max=None,
+    leadtime_mode=None,
+    leadtime_profiles_count=None,  # Kept for backward compatibility (unused)
+    num_scenarios=None,
     seed=None,
 ):
     """
-    Creates a set of tasks (scenario definitions).
+    Create a scenario pool by random sampling.
 
-    A "scenario/task" is defined by:
-      - customer demand distribution
-      - supplier leadtime distributions (per material)
-
-    Args:
-        demand_dists: list of demand distribution dicts.
-        leadtime_dists: list of leadtime distribution dicts.
-        leadtime_mode: "shared" (all materials use same dist) or
-                       "per_material_random" (sample per material).
-        leadtime_profiles_count: number of leadtime profiles to sample for
-                                 "per_material_random" mode.
-        seed: optional seed for reproducible scenario generation.
-
-    Returns:
-        scenarios (list): list of scenario dicts in MetaEnv format.
+    Each scenario samples:
+      - one demand distribution (type + parameters)
+      - one leadtime profile for all suppliers
+        * shared: one distribution shared by all suppliers
+        * per_material_random: each supplier sampled independently
     """
-    rng = random.Random(seed)
-    demand_dists = demand_dists or _default_demand_dists()
-    leadtime_dists = leadtime_dists or _default_leadtime_dists()
+    demand_min = SCENARIO_SAMPLING_DEFAULTS["demand_min"] if demand_min is None else demand_min
+    demand_max = SCENARIO_SAMPLING_DEFAULTS["demand_max"] if demand_max is None else demand_max
+    leadtime_min = SCENARIO_SAMPLING_DEFAULTS["leadtime_min"] if leadtime_min is None else leadtime_min
+    leadtime_max = SCENARIO_SAMPLING_DEFAULTS["leadtime_max"] if leadtime_max is None else leadtime_max
+    leadtime_mode = SCENARIO_SAMPLING_DEFAULTS["leadtime_mode"] if leadtime_mode is None else leadtime_mode
+    num_scenarios = SCENARIO_SAMPLING_DEFAULTS["num_scenarios"] if num_scenarios is None else num_scenarios
 
-    leadtime_profiles = _build_leadtime_profiles(
-        leadtime_dists=leadtime_dists,
-        leadtime_mode=leadtime_mode,
-        leadtime_profiles_count=leadtime_profiles_count,
-        rng=rng,
+    rng = random.Random(seed)
+    demand_candidates = demand_dists or _default_demand_dists(demand_min=demand_min, demand_max=demand_max)
+    leadtime_candidates = leadtime_dists or _default_leadtime_dists(
+        leadtime_min=leadtime_min, leadtime_max=leadtime_max
     )
 
-    scenarios = [
-        {"DEMAND": demand, "LEADTIME": leadtime_profile}
-        for demand in demand_dists
-        for leadtime_profile in leadtime_profiles
-    ]
+    scenarios = []
+    for _ in range(num_scenarios):
+        demand = dict(rng.choice(demand_candidates))
+
+        if leadtime_mode == "shared":
+            dist = dict(rng.choice(leadtime_candidates))
+            leadtime_profile = [dict(dist) for _ in range(MAT_COUNT)]
+        elif leadtime_mode == "per_material_random":
+            leadtime_profile = [dict(rng.choice(leadtime_candidates)) for _ in range(MAT_COUNT)]
+        else:
+            raise ValueError(f"Unknown leadtime_mode: {leadtime_mode}")
+
+        scenarios.append({"DEMAND": demand, "LEADTIME": leadtime_profile})
 
     return scenarios

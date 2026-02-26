@@ -50,8 +50,8 @@ from DRL.config import (
 
 # Scenario distribution parameters (same family as Meta-RL)
 SCENARIO_DIST_CONFIG = {
-    "leadtime_mode": "per_material_random",
-    "leadtime_profiles_count": 1,
+    # Keep this minimal; sampling defaults are centralized in envs/scenarios.py
+    # so DRL and non-DRL experiments stay aligned.
     "seed": None,
 }
 

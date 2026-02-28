@@ -137,7 +137,7 @@ def main(params):
                         parallel=params["parallel"], 
                         rollout_per_task=params["rollout_per_task"], 
                         clip_eps=params["clip_eps"], 
-                        trainable_learning_rate=False,
+                        trainable_learning_rate=True,
                         device=params["device"],
                         action_log_interval=params["action_log_interval"])
     elif algorithm_name == "VPG_MAML":
@@ -151,7 +151,7 @@ def main(params):
                         parallel=params["parallel"], 
                         rollout_per_task=params["rollout_per_task"], 
                         clip_eps=params["clip_eps"], 
-                        trainable_learning_rate=False,
+                        trainable_learning_rate=True,
                         device=params["device"],
                         action_log_interval=params["action_log_interval"])
     else:
@@ -164,7 +164,7 @@ def main(params):
     start_time = time.time()
 
     # Checkpoint paths
-    last_ckpt_path = os.path.join(SAVED_MODEL_PATH, "saved_model")
+    last_ckpt_path = os.path.join(SAVED_MODEL_PATH, "saved_model_final")
     best_ckpt_path = os.path.join(SAVED_MODEL_PATH, "saved_model_best_fewshot")
     best_meta_path = os.path.join(SAVED_MODEL_PATH, "saved_model_best_fewshot_meta.json")
 
@@ -281,12 +281,12 @@ if __name__ == "__main__":
         
         # ===== Meta-Learning Parameters =====
         "alpha": 0.003,  # Inner-loop learning rate (α): used for task-specific gradient descent during inner_loop adaptation
-        "beta": 0.0005,  # Outer-loop (meta) learning rate (β): used by Adam optimizer to update meta-parameters θ (optimizer = optim.Adam(agent.parameters(), lr=beta))
-        "num_inner_grad": 3,  # Number of inner gradient descent steps per task during inner_loop (inner adaptation steps)
-        "outer_iters": 5,  # Number of outer-loop meta-updates per epoch WITHOUT re-sampling tasks. For each epoch: inner_loop once, then outer_loop runs self.outer_iters times on same task rollouts
+        "beta": 0.0003,  # Outer-loop (meta) learning rate (β): used by Adam optimizer to update meta-parameters θ (optimizer = optim.Adam(agent.parameters(), lr=beta))
+        "num_inner_grad": 5,  # Number of inner gradient descent steps per task during inner_loop (inner adaptation steps)
+        "outer_iters": 1,  # Number of outer-loop meta-updates per epoch WITHOUT re-sampling tasks. For each epoch: inner_loop once, then outer_loop runs self.outer_iters times on same task rollouts
         
         # ===== Policy Optimization =====
-        "clip_eps": 0.2,  # PPO clipping epsilon: controls the clipping range in PPO loss (used only by ProMP, not VPG_MAML). Inner loop: -(ratio * A).mean() without clipping
+        "clip_eps": 0.15,  # PPO clipping epsilon: controls the clipping range in PPO loss (used only by ProMP, not VPG_MAML). Inner loop: -(ratio * A).mean() without clipping
         
         # ===== Advantage Estimation =====
         "discount": 0.99,  # Discount factor (γ): used in GAE (Generalized Advantage Estimation) to compute returns: return_t = reward_t + γ * V(s_{t+1})
@@ -305,7 +305,7 @@ if __name__ == "__main__":
         # ===== Held-out Few-shot Validation (best-checkpoint selection) =====
         "fewshot_validation": {
             "enabled": True,
-            "interval": 20,              # Run validation every N epochs (+ final epoch)
+            "interval": 10,              # Run validation every N epochs (+ final epoch)
             "adapt_steps": [0, 1, 3, 5], # Requested few-shot adaptation steps
             "num_tasks": 5,              # Fixed held-out task pool size
             "rollout_per_task": 5,       # Rollouts per task for validation sampling

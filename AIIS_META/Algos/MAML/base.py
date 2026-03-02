@@ -71,6 +71,7 @@ class MAML_BASE(nn.Module):
                  gae_lambda: float = 1.0,
                  normalize_adv=True,
                  trainable_learning_rate=True,
+                 inner_step_size_max: float = 0.05,
                  device=torch.device('cuda'),
                  action_log_interval: int = 100):
         super().__init__()
@@ -90,7 +91,7 @@ class MAML_BASE(nn.Module):
         self.alpha = alpha
         self.beta = beta
         # Upper bound for learnable inner step sizes to prevent runaway growth
-        self.inner_step_size_max = 0.05
+        self.inner_step_size_max = float(inner_step_size_max)
         self.action_log_interval = max(1, int(action_log_interval))
 
         # KL divergence penalty coefficients (inner adaptation regularization)

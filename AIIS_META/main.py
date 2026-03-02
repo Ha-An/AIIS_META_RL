@@ -37,9 +37,9 @@ def _build_fewshot_validation_tasks(params):
 
 def _evaluate_fewshot_validation(meta_algo, validation_tasks, params):
     val_cfg = dict(params.get("fewshot_validation", {}))
-    adapt_steps = sorted(set(int(s) for s in val_cfg.get("adapt_steps", [0, 1, 3, 5])))
+    adapt_steps = sorted(set(int(s) for s in val_cfg.get("adapt_steps", [0, 1, 2, 3, 5])))
     if not adapt_steps:
-        return {}, float("inf")
+        return {}, float("inf"), float("-inf")
 
     rollout_per_task = int(val_cfg.get("rollout_per_task", params["rollout_per_task"]))
     max_path_length = int(val_cfg.get("max_path_length", params["max_path_length"]))
@@ -98,9 +98,42 @@ def _evaluate_fewshot_validation(meta_algo, validation_tasks, params):
     finally:
         sampler.close()
 
-    valid = [step_costs[s] for s in adapt_steps if s in step_costs and np.isfinite(step_costs[s])]
-    score = float(np.mean(valid)) if valid else float("inf")
-    return step_costs, score
+    # Checkpoint selection score: weighted adaptation gain from step-0 baseline.
+    # Lower score is better, so we minimize negative gain.
+    base_cost = step_costs.get(0, float("nan"))
+    if not np.isfinite(base_cost):
+        return step_costs, float("inf"), float("-inf")
+
+    gain_weights_cfg = dict(val_cfg.get("gain_weights", {0: 0.0, 1: 0.25, 2: 0.25, 3: 0.25, 5: 0.25}))
+    gain_weights = {}
+    for k, v in gain_weights_cfg.items():
+        try:
+            step_k = int(k)
+            gain_weights[step_k] = float(v)
+        except (TypeError, ValueError):
+            continue
+
+    # Use only adapted steps for gain aggregation (0-step is baseline only).
+    adapted_steps = [s for s in sorted(gain_weights.keys()) if s != 0]
+    weighted_gains = []
+    weighted_sum = 0.0
+    for s in adapted_steps:
+        c = step_costs.get(s, float("nan"))
+        if not np.isfinite(c):
+            continue
+        w = float(gain_weights.get(s, 0.0))
+        if w <= 0:
+            continue
+        gain_s = float(base_cost - c)
+        weighted_gains.append((w, gain_s))
+        weighted_sum += w
+
+    if weighted_sum <= 0:
+        return step_costs, float("inf"), float("-inf")
+
+    weighted_gain = float(sum(w * g for w, g in weighted_gains) / weighted_sum)
+    score = -weighted_gain
+    return step_costs, score, weighted_gain
 
 
 def main(params):
@@ -138,6 +171,7 @@ def main(params):
                         rollout_per_task=params["rollout_per_task"], 
                         clip_eps=params["clip_eps"], 
                         trainable_learning_rate=True,
+                        inner_step_size_max=params["inner_step_size_max"],
                         device=params["device"],
                         action_log_interval=params["action_log_interval"])
     elif algorithm_name == "VPG_MAML":
@@ -152,6 +186,7 @@ def main(params):
                         rollout_per_task=params["rollout_per_task"], 
                         clip_eps=params["clip_eps"], 
                         trainable_learning_rate=True,
+                        inner_step_size_max=params["inner_step_size_max"],
                         device=params["device"],
                         action_log_interval=params["action_log_interval"])
     else:
@@ -177,7 +212,7 @@ def main(params):
     if val_enabled:
         validation_tasks = _build_fewshot_validation_tasks(params)
         val_interval = max(1, int(val_cfg.get("interval", 20)))
-        val_steps = sorted(set(int(s) for s in val_cfg.get("adapt_steps", [0, 1, 3, 5])))
+        val_steps = sorted(set(int(s) for s in val_cfg.get("adapt_steps", [0, 1, 2, 3, 5])))
 
         print(
             "[FewShot-Validation] enabled: "
@@ -190,11 +225,15 @@ def main(params):
             if (epoch_idx % val_interval != 0) and (epoch_idx != int(params["epochs"])):
                 return
 
-            step_costs, score = _evaluate_fewshot_validation(algo, validation_tasks, params)
-            print(f"[FewShot-Validation] epoch={epoch_idx}, score={score:.4f}, step_costs={step_costs}")
+            step_costs, score, gain = _evaluate_fewshot_validation(algo, validation_tasks, params)
+            print(
+                f"[FewShot-Validation] epoch={epoch_idx}, "
+                f"score={score:.4f}, gain={gain:.4f}, step_costs={step_costs}"
+            )
 
             if hasattr(algo, "writer"):
                 algo.writer.add_scalar("FewShotVal/Score", score, global_step=epoch)
+                algo.writer.add_scalar("FewShotVal/AdaptGain", gain, global_step=epoch)
                 for step, cost in sorted(step_costs.items()):
                     algo.writer.add_scalar(f"FewShotVal/TotalCost_Step{step}", cost, global_step=epoch)
 
@@ -210,6 +249,8 @@ def main(params):
                             "best_score": best_state["score"],
                             "step_costs": best_state["step_costs"],
                             "adapt_steps": val_steps,
+                            "checkpoint_selection": "weighted_adaptation_gain",
+                            "gain_weights": dict(val_cfg.get("gain_weights", {0: 0.0, 1: 0.25, 2: 0.25, 3: 0.25, 5: 0.25})),
                             "interval": val_interval,
                             "validation_num_tasks": len(validation_tasks),
                             "validation_seed": int(val_cfg.get("seed", 2026)),
@@ -235,7 +276,7 @@ def main(params):
                     "best_epoch": int(params["epochs"]),
                     "best_score": None,
                     "step_costs": {},
-                    "adapt_steps": sorted(set(int(s) for s in val_cfg.get("adapt_steps", [0, 1, 3, 5]))),
+                    "adapt_steps": sorted(set(int(s) for s in val_cfg.get("adapt_steps", [0, 1, 2, 3, 5]))),
                     "note": "No validation-improvement checkpoint was found; copied final model.",
                 },
                 f,
@@ -280,20 +321,21 @@ if __name__ == "__main__":
         "max_path_length": SIM_TIME,  # Maximum timesteps per trajectory. Episode terminates when timestep >= max_path_length (set to SIM_TIME=200 from config)
         
         # ===== Meta-Learning Parameters =====
-        "alpha": 0.003,  # Inner-loop learning rate (α): used for task-specific gradient descent during inner_loop adaptation
-        "beta": 0.0003,  # Outer-loop (meta) learning rate (β): used by Adam optimizer to update meta-parameters θ (optimizer = optim.Adam(agent.parameters(), lr=beta))
-        "num_inner_grad": 5,  # Number of inner gradient descent steps per task during inner_loop (inner adaptation steps)
-        "outer_iters": 1,  # Number of outer-loop meta-updates per epoch WITHOUT re-sampling tasks. For each epoch: inner_loop once, then outer_loop runs self.outer_iters times on same task rollouts
+        "alpha": 0.002,  # Inner-loop learning rate (alpha): used for task-specific gradient descent during inner-loop adaptation
+        "inner_step_size_max": 0.02,  # Upper bound for trainable inner step sizes
+        "beta": 0.0005,  # Outer-loop (meta) learning rate (β): used by Adam optimizer to update meta-parameters θ (optimizer = optim.Adam(agent.parameters(), lr=beta))
+        "num_inner_grad": 3,  # Number of inner gradient descent steps per task during inner_loop (inner adaptation steps)
+        "outer_iters": 5,  # Number of outer-loop meta-updates per epoch WITHOUT re-sampling tasks. For each epoch: inner_loop once, then outer_loop runs self.outer_iters times on same task rollouts
         
         # ===== Policy Optimization =====
-        "clip_eps": 0.15,  # PPO clipping epsilon: controls the clipping range in PPO loss (used only by ProMP, not VPG_MAML). Inner loop: -(ratio * A).mean() without clipping
+        "clip_eps": 0.20,  # PPO clipping epsilon: controls the clipping range in PPO loss (used only by ProMP, not VPG_MAML). Inner loop: -(ratio * A).mean() without clipping
         
         # ===== Advantage Estimation =====
         "discount": 0.99,  # Discount factor (γ): used in GAE (Generalized Advantage Estimation) to compute returns: return_t = reward_t + γ * V(s_{t+1})
         "gae_lambda": 1.0,  # GAE lambda (λ): λ=1.0 means standard return (no discounting of TD residuals), λ=0.0 means only 1-step advantage. Controls bias-variance tradeoff in advantage estimation
         
         # ===== Training Configuration =====
-        "epochs": 3000,  # Total number of meta-training epochs (outer loop iterations with new task sampling). Change to 500 for full training
+        "epochs": 4000,  # Total number of meta-training epochs (outer loop iterations with new task sampling). Change to 500 for full training
         "parallel": True,  # Use multiprocessing for parallel environment sampling. If False, samples sequentially (slower but less memory)
         "learn_std": True,  # Whether the policy's action standard deviation (log_std parameter) is learnable. If False, log_std remains fixed at init value
         
@@ -306,7 +348,8 @@ if __name__ == "__main__":
         "fewshot_validation": {
             "enabled": True,
             "interval": 10,              # Run validation every N epochs (+ final epoch)
-            "adapt_steps": [0, 1, 3, 5], # Requested few-shot adaptation steps
+            "adapt_steps": [0, 1, 2, 3, 5], # Requested few-shot adaptation steps
+            "gain_weights": {0: 0.0, 1: 0.25, 2: 0.25, 3: 0.25, 5: 0.25},  # Best-checkpoint score uses weighted adaptation gain (step0 baseline)
             "num_tasks": 5,              # Fixed held-out task pool size
             "rollout_per_task": 5,       # Rollouts per task for validation sampling
             "max_path_length": SIM_TIME,
@@ -318,3 +361,5 @@ if __name__ == "__main__":
     }
     main(params)
    
+
+

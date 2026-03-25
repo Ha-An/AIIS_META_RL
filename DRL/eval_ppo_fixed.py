@@ -1,11 +1,11 @@
-import argparse
+﻿import argparse
 from pathlib import Path
 
 import matplotlib.pyplot as plt
-import numpy as np
 import pandas as pd
 import torch
 
+from DRL.config import EVAL_RESULT_PATH, EVAL_RUN_CONFIG
 from DRL.train_ppo_example import SCENARIO_DIST_CONFIG, create_fixed_task, create_ppo_agent
 from envs.promp_env import MetaEnv
 
@@ -125,12 +125,15 @@ def plot_eval(df, out_png):
 
 def main():
     parser = argparse.ArgumentParser(description="Evaluate trained PPO model on a fixed scenario")
-    parser.add_argument("--model-path", type=Path, required=True)
-    parser.add_argument("--task-id", type=int, default=1, choices=[0, 1, 2, 3])
-    parser.add_argument("--reps", type=int, default=100)
-    parser.add_argument("--policy-dist", type=str, default="categorical", choices=["categorical", "gaussian"])
-    parser.add_argument("--output-dir", type=Path, default=Path("DRL") / "Eval_results")
+    parser.add_argument("--model-path", type=Path, default=Path(EVAL_RUN_CONFIG["model_path"]))
+    parser.add_argument("--task-id", type=int, default=int(EVAL_RUN_CONFIG["task_id"]), choices=[0, 1, 2, 3])
+    parser.add_argument("--reps", type=int, default=int(EVAL_RUN_CONFIG["reps"]))
+    parser.add_argument("--policy-dist", type=str, default=EVAL_RUN_CONFIG["policy_dist"], choices=["categorical", "gaussian"])
+    parser.add_argument("--output-dir", type=Path, default=Path(EVAL_RUN_CONFIG.get("output_dir", EVAL_RESULT_PATH)))
     args = parser.parse_args()
+
+    if not args.model_path.exists():
+        raise FileNotFoundError(f"Saved model not found: {args.model_path}")
 
     df = evaluate_model(
         model_path=args.model_path,
@@ -149,6 +152,9 @@ def main():
     plot_eval(df, out_png)
 
     summary = df["total_cost_200d"].agg(["mean", "std", "min", "max"])
+    print(f"[Config] model_path: {args.model_path}")
+    print(f"[Config] task_id: {args.task_id}")
+    print(f"[Config] reps: {args.reps}")
     print(f"[Saved] Eval CSV: {out_csv}")
     print(f"[Saved] Eval Plot: {out_png}")
     print("[Summary total_cost_200d]")

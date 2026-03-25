@@ -1,4 +1,4 @@
-# PPO.py
+﻿# PPO.py
 # -*- coding: utf-8 -*-
 """
 Proximal Policy Optimization (PPO) for Single-Task and Multi-Task Scenarios
@@ -8,7 +8,7 @@ It reuses components from the Meta-RL framework (environment, baseline, sampler)
 only optimizes the policy for a fixed or dynamically sampled task.
 
 Key differences from ProMP:
-- No inner-loop adaptation (no θ' computation)
+- No inner-loop adaptation (no 罐' computation)
 - No outer-loop meta-optimization (no meta-parameter updates)
 - Simple PPO gradient steps with task randomization option
 """
@@ -58,7 +58,7 @@ class PPO:
                  beta: float = 0.0005,          # Learning rate (meta-RL compatible)
                  clip_eps: float = 0.3,         # PPO clipping epsilon
                  outer_iters: int = 5,          # PPO update iterations per epoch
-                 discount: float = 0.99,        # Discount factor (γ)
+                 discount: float = 0.99,        # Discount factor (款)
                  gae_lambda: float = 1.0,       # GAE lambda parameter
                  normalize_adv: bool = True,    # Normalize advantages
                  parallel: bool = False,        # Use parallel sampling
@@ -123,12 +123,12 @@ class PPO:
         Otherwise, tasks will be randomly sampled from the environment's task distribution.
         """
         if self.fixed_task is not None:
-            print(f"✓ Using fixed task: {self.fixed_task}")
+            print(f"??Using fixed task: {self.fixed_task}")
             self.randomize_tasks = False
         elif self.randomize_tasks:
-            print(f"✓ Task randomization enabled (new tasks each epoch)")
+            print(f"??Task randomization enabled (new tasks each epoch)")
         else:
-            print(f"✓ Task randomization disabled (same tasks throughout)")
+            print(f"??Task randomization disabled (same tasks throughout)")
     
     # ==========================================================
     # PPO Surrogate Loss
@@ -155,13 +155,13 @@ class PPO:
         if isinstance(advantages, (list, tuple)):
             advantages = torch.stack(advantages).detach()
         
-        # Likelihood ratio: π(a|s) / π_old(a|s)
+        # Likelihood ratio: ?(a|s) / ?_old(a|s)
         ratios = torch.exp(logp_new - logp_old)
         
         # PPO-style clipping
         clipped_ratios = torch.clamp(ratios, 1.0 - self.clip_eps, 1.0 + self.clip_eps)
         
-        # min(ratio·A, clip(ratio)·A)
+        # min(ratio쨌A, clip(ratio)쨌A)
         surr = torch.min(ratios.T * advantages, clipped_ratios.T * advantages)
         
         # Return negative because we minimize
@@ -207,6 +207,42 @@ class PPO:
         processed_paths = self.sample_processor.process_samples(paths)
         
         return processed_paths
+
+    def _extract_rollout_total_costs(self, paths: List[Dict]) -> List[float]:
+        rollout_costs = []
+        for task_paths in paths:
+            if isinstance(task_paths, dict) and "rewards" in task_paths:
+                rollout_costs.append(float(-np.sum(task_paths["rewards"])))
+        return rollout_costs
+
+    def _extract_cost_components(self, logging_infos: Dict[str, Any]) -> Dict[str, float]:
+        components: Dict[str, float] = {}
+        raw_cost = logging_infos.get("cost")
+        if not isinstance(raw_cost, dict):
+            return components
+
+        for key, value in raw_cost.items():
+            scalar = value.item() if isinstance(value, torch.Tensor) else value
+            if isinstance(scalar, (int, float, np.generic)):
+                components[str(key)] = float(scalar)
+        return components
+
+    def _extract_total_cost(self, logging_infos: Dict[str, Any], paths: List[Dict]) -> Optional[float]:
+        cost_components = self._extract_cost_components(logging_infos)
+        if cost_components:
+            return float(np.sum(list(cost_components.values())))
+
+        for key in ("TotalCost", "total_cost", "cost_total"):
+            if key in logging_infos:
+                value = logging_infos[key]
+                value = value.item() if isinstance(value, torch.Tensor) else value
+                if isinstance(value, (int, float, np.generic)):
+                    return float(value)
+
+        rollout_costs = self._extract_rollout_total_costs(paths)
+        if rollout_costs:
+            return float(np.mean(rollout_costs))
+        return None
     
     # ==========================================================
     # PPO Update Step
@@ -253,7 +289,7 @@ class PPO:
         Training dynamics:
         - If fixed_task: Use the same task throughout training
         - If randomize_tasks: Sample new tasks each epoch
-        - Per epoch: Collect trajectories → PPO updates (outer_iters times)
+        - Per epoch: Collect trajectories ??PPO updates (outer_iters times)
         """
         reward_history = []
         
@@ -281,28 +317,29 @@ class PPO:
                 elif isinstance(logging_infos[key], dict):
                     self.writer.add_scalars(f"{key}", logging_infos[key], global_step=epoch)
 
-            # Log total cost explicitly for easier TensorBoard tracking.
-            total_cost = None
-            if isinstance(logging_infos.get("cost"), dict):
-                cost_vals = []
-                for v in logging_infos["cost"].values():
-                    if isinstance(v, torch.Tensor):
-                        v = v.item()
-                    if isinstance(v, (int, float, np.generic)):
-                        cost_vals.append(float(v))
-                if cost_vals:
-                    total_cost = float(np.sum(cost_vals))
-            if total_cost is None:
-                for k in ("TotalCost", "total_cost", "cost_total"):
-                    if k in logging_infos:
-                        v = logging_infos[k]
-                        if isinstance(v, torch.Tensor):
-                            v = v.item()
-                        if isinstance(v, (int, float, np.generic)):
-                            total_cost = float(v)
-                            break
+            cost_components = self._extract_cost_components(logging_infos)
+            total_cost = self._extract_total_cost(logging_infos, paths)
             if total_cost is not None:
                 self.writer.add_scalar("TotalCost", total_cost, global_step=epoch)
+                self.writer.add_scalar("PPO/TotalCost", total_cost, global_step=epoch)
+                self.writer.add_scalar("Cost/TotalCost", total_cost, global_step=epoch)
+            for component_name, component_value in cost_components.items():
+                safe_name = component_name.replace(" ", "_")
+                self.writer.add_scalar(f"Cost/{safe_name}", component_value, global_step=epoch)
+
+            # Also log dispersion for stability monitoring.
+            rollout_costs = self._extract_rollout_total_costs(paths)
+            if rollout_costs:
+                self.writer.add_scalar(
+                    "PPO/TotalCostStd",
+                    float(np.std(np.asarray(rollout_costs, dtype=float))),
+                    global_step=epoch,
+                )
+                self.writer.add_scalar(
+                    "Cost/TotalCostStd",
+                    float(np.std(np.asarray(rollout_costs, dtype=float))),
+                    global_step=epoch,
+                )
 
             # Action distribution (aggregate over all tasks)
             if epoch % self.action_log_interval == 0:
@@ -371,15 +408,16 @@ class PPO:
     def save_model(self, path: str):
         """Save agent parameters to disk."""
         torch.save(self.agent.state_dict(), path)
-        print(f"✓ Model saved to {path}")
+        print(f"??Model saved to {path}")
     
     def load_model(self, path: str):
         """Load agent parameters from disk."""
         self.agent.load_state_dict(torch.load(path))
-        print(f"✓ Model loaded from {path}")
+        print(f"??Model loaded from {path}")
     
     def close(self):
         """Clean up resources (parallel workers, etc.)."""
         if hasattr(self, "sampler") and hasattr(self.sampler, "close"):
             self.sampler.close()
         self.writer.close()
+

@@ -177,6 +177,7 @@ def create_ppo_agent(device: torch.device, num_tasks: int, policy_dist: str = "g
     return agent, mlp
 
 
+
 def run_fixed_task_example(task_id: int = 0,
                            epochs: int = 100,
                            beta: float = 0.0005,
@@ -207,7 +208,7 @@ def run_fixed_task_example(task_id: int = 0,
     
     # Create fixed task
     fixed_task = create_fixed_task(task_id)
-    print(f"\n✓ Task: {fixed_task.get('_name', 'Unknown Task')}")
+    print(f"\nTask: {fixed_task.get('_name', 'Unknown Task')}")
     print(f"  Description: {fixed_task.get('_description', 'N/A')}")
     print(f"  Demand: {fixed_task['DEMAND']}")
     print(f"  Leadtime: {fixed_task['LEADTIME'][0]}")  # All are same in fixed task
@@ -250,7 +251,7 @@ def run_fixed_task_example(task_id: int = 0,
     print(f"\n{'='*70}")
     print(f"Training Configuration:")
     print(f"  Epochs: {epochs}")
-    print(f"  Learning rate (β): {beta}")
+    print(f"  Learning rate (beta): {beta}")
     print(f"  Clip epsilon: {clip_eps}")
     print(f"  Outer iterations: {outer_iters}")
     print(f"  Log directory: {log_dir}")
@@ -263,7 +264,6 @@ def run_fixed_task_example(task_id: int = 0,
     model_save_path = model_run_dir / "PPO_Fixed" / "saved_model"
     model_save_path.parent.mkdir(parents=True, exist_ok=True)
     ppo.save_model(str(model_save_path))
-    
     ppo.close()
 
 
@@ -293,7 +293,7 @@ def run_randomized_task_example(epochs: int = 100,
     agent, _ = create_ppo_agent(device, num_tasks=META_RL_DEFAULTS["num_task"], policy_dist=policy_dist)
     baseline = LinearFeatureBaseline()
     
-    print(f"\n✓ Task Randomization: ENABLED")
+    print(f"\nTask Randomization: ENABLED")
     print(f"  New random task sampled each epoch")
     print(f"  Task distribution: Same as Meta-RL framework")
     
@@ -324,7 +324,7 @@ def run_randomized_task_example(epochs: int = 100,
     print(f"Training Configuration:")
     print(f"  Epochs: {epochs}")
     print(f"  Tasks per epoch: {META_RL_DEFAULTS['num_task']}")
-    print(f"  Learning rate (β): {beta}")
+    print(f"  Learning rate (beta): {beta}")
     print(f"  Clip epsilon: {clip_eps}")
     print(f"  Outer iterations: {outer_iters}")
     print(f"  Log directory: {log_dir}")
@@ -337,7 +337,6 @@ def run_randomized_task_example(epochs: int = 100,
     model_save_path = model_run_dir / "PPO_Randomized" / "saved_model"
     model_save_path.parent.mkdir(parents=True, exist_ok=True)
     ppo.save_model(str(model_save_path))
-    
     ppo.close()
 
 
@@ -389,8 +388,7 @@ if __name__ == "__main__":
         default=PPO_RUN_CONFIG["policy_dist"],
         choices=["gaussian", "categorical"],
         help="Policy distribution type"
-    )
-    
+    )    
     args = parser.parse_args()
     
     # Run selected training mode
@@ -411,3 +409,5 @@ if __name__ == "__main__":
             outer_iters=args.outer_iters,
             policy_dist=args.policy_dist
         )
+
+

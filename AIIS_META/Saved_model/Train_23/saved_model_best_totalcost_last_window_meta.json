@@ -1,0 +1,7 @@
+{
+  "best_epoch": 7910,
+  "best_total_cost": 113395.38208124999,
+  "checkpoint_selection": "min_total_cost_in_last_window",
+  "best_save_start_epoch": 7500,
+  "save_best_totalcost_from_last_epochs": 500
+}

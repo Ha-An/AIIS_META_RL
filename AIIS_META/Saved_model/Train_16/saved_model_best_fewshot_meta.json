@@ -1,0 +1,31 @@
+{
+  "best_epoch": 5630,
+  "best_score": -699.4155903958326,
+  "step_costs": {
+    "0": 22272.582947416664,
+    "1": 21620.233968749995,
+    "2": 21979.483452166663,
+    "3": 21517.946649083333,
+    "5": 21175.005358083334
+  },
+  "adapt_steps": [
+    0,
+    1,
+    2,
+    3,
+    5
+  ],
+  "checkpoint_selection": "weighted_adaptation_gain",
+  "gain_weights": {
+    "0": 0.0,
+    "1": 0.25,
+    "2": 0.25,
+    "3": 0.25,
+    "5": 0.25
+  },
+  "interval": 10,
+  "best_save_start_epoch": 5500,
+  "save_best_from_last_epochs": 500,
+  "validation_num_tasks": 5,
+  "validation_seed": 2026
+}

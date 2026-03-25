@@ -41,7 +41,8 @@ class ProMP(MAML_BASE):
                  discount: float = 0.99,       # Discount factor (γ)
                  gae_lambda: float = 1.0,      # GAE λ parameter
                  normalize_adv: bool = True,   # Normalize advantages
-                 trainable_learning_rate=True, # Allow inner α_i to be learnable
+                 trainable_learning_rate=True, # Allow inner learning-rate tensor to be learnable
+                 inner_step_size_max: float = 0.05,
                  device: Optional[torch.device] = None,
                  action_log_interval: int = 100):
 
@@ -54,6 +55,7 @@ class ProMP(MAML_BASE):
             discount=discount, gae_lambda=gae_lambda,
             normalize_adv=normalize_adv,
             trainable_learning_rate=trainable_learning_rate,
+            inner_step_size_max=inner_step_size_max,
             device=device,
             action_log_interval=action_log_interval
         )
@@ -83,8 +85,8 @@ class ProMP(MAML_BASE):
                    clip: bool = False) -> torch.Tensor:
         """
         Compute the surrogate loss:
-        - If clip=False → standard policy gradient objective.
-        - If clip=True  → PPO-style clipped surrogate.
+        - If clip=False ??standard policy gradient objective.
+        - If clip=True  ??PPO-style clipped surrogate.
 
         logp_* : (tensor) log-probabilities per sample
         advs   : (tensor) advantages per sample
@@ -96,7 +98,7 @@ class ProMP(MAML_BASE):
         if isinstance(advs, (list, tuple)):
             advs = torch.stack(advs).detach()
 
-        ratios = torch.exp(logp_new - logp_old)  # likelihood ratio π_new / π_old
+        ratios = torch.exp(logp_new - logp_old)  # likelihood ratio ?_new / ?_old
 
         if clip:
             # PPO-style clipping
@@ -115,7 +117,7 @@ class ProMP(MAML_BASE):
     @staticmethod
     def _kl_from_logps(logp_old, logp_new):
         """
-        Approximate KL(old || new) ≈ E_old[logp_old - logp_new].
+        Approximate KL(old || new) ??E_old[logp_old - logp_new].
         Assumes logp_* are valid log-probabilities.
         """
         kl = (logp_old.detach() - logp_new).mean()
@@ -187,7 +189,7 @@ class ProMP(MAML_BASE):
     ) -> Dict[str, torch.Tensor]:
         """
         Performs one inner adaptation step:
-        θ' = θ - α_i * ∇_θ L_inner(θ)
+        θ' = θ - α_i * ??θ L_inner(θ)
         Returns a new parameter dictionary preserving computation graph.
         """
         surr = self.inner_obj(batch, params=params)
@@ -367,8 +369,8 @@ class ProMP(MAML_BASE):
     def _adapt_inner_kl_coeff(self, inner_kls: torch.Tensor):
         """
         Adjusts the KL penalty coefficient (λ) based on KL magnitude.
-        - If KL < target/1.5 → halve λ (too small, less regularization)
-        - If KL > target*1.5 → double λ (too large, more penalty)
+        - If KL < target/1.5 ??halve λ (too small, less regularization)
+        - If KL > target*1.5 ??double λ (too large, more penalty)
         """
         new_coeff = self.inner_kl_coeff.clone()
         low, high = self.target_kl_diff / 1.5, self.target_kl_diff * 1.5
@@ -390,3 +392,4 @@ class ProMP(MAML_BASE):
             self.writer.close()
         if hasattr(self, "sampler") and hasattr(self.sampler, "close"):
             self.sampler.close()
+

@@ -35,7 +35,9 @@ class VPG_MAML(MAML_BASE):
                  discount: float = 0.99,        # Gamma
                  gae_lambda: float = 1.0,       # lambda of GAE
                  normalize_adv: bool = True,        # Nomalizing Advantage
+                 trainable_learning_rate=True,
                  loss_type: str = "log_likelihood",
+                 inner_step_size_max: float = 0.05,
                  device: Optional[torch.device] = None,
                  action_log_interval: int = 100):
         # initial setting
@@ -45,7 +47,10 @@ class VPG_MAML(MAML_BASE):
             outer_iters, parallel, clip_eps=clip_eps,
             init_inner_kl_penalty = init_inner_kl_penalty,
             discount=discount, gae_lambda=gae_lambda,
-            normalize_adv=normalize_adv, device=device,
+            normalize_adv=normalize_adv,
+            trainable_learning_rate=trainable_learning_rate,
+            inner_step_size_max=inner_step_size_max,
+            device=device,
             action_log_interval=action_log_interval
         )
         self.clip_eps = float(clip_eps)

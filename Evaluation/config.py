@@ -4,10 +4,10 @@ import torch
 
 from envs.scenarios import SCENARIO_SAMPLING_DEFAULTS
 
-# PRETRAINED_PROMP_MODEL_PATH = r"C:\Github\AIIS_META_RL\AIIS_META\Saved_model\Train_21\saved_model_final"
-PRETRAINED_PROMP_MODEL_PATH = r"C:\Github\AIIS_META_RL\AIIS_META\Saved_model\Train_21\saved_model_best_totalcost_last_window"
-# PRETRAINED_PROMP_MODEL_PATH = r"C:\Github\AIIS_META_RL\AIIS_META\Saved_model\Train_21\saved_model_best_fewshot"
-PRETRAINED_PPO_MODEL_PATH = r"C:\Github\AIIS_META_RL\DRL\Saved_model\Train_4\PPO_Randomized\saved_model"
+# PRETRAINED_PROMP_MODEL_PATH = r"C:\Github\AIIS_META_RL\AIIS_META\Saved_model\Train_23\saved_model_final"
+PRETRAINED_PROMP_MODEL_PATH = r"C:\Github\AIIS_META_RL\AIIS_META\Saved_model\Train_23\saved_model_best_totalcost_last_window"
+# PRETRAINED_PROMP_MODEL_PATH = r"C:\Github\AIIS_META_RL\AIIS_META\Saved_model\Train_23\saved_model_best_fewshot"
+PRETRAINED_PPO_MODEL_PATH = r"C:\Github\AIIS_META_RL\DRL\Saved_model\Train_8\PPO_Randomized\saved_model"
 
 RANDOM_SEED = 2026
 DAYS = 200
@@ -51,7 +51,8 @@ RANDOMIZED_NONSTATIONARY_EPISODES_PER_SEQUENCE = 5
 # A new scenario distribution is applied at the start of each segment.
 # -----------------------------------------------------------------------------
 NONSTATIONARY_SEGMENTS = [
-    (1, 100),
+    (1, 50),
+    (51, 100),
     (101, 150),
     (151, 200),
 ]

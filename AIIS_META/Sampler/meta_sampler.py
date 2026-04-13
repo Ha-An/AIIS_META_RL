@@ -9,6 +9,14 @@ import numpy as np
 import itertools
 import time
 
+
+class _NullProgBar:
+    def update(self, *args, **kwargs):
+        return None
+
+    def stop(self):
+        return None
+
 class MetaSampler(Sampler):
     """
     Sampler for Meta-RL
@@ -84,7 +92,10 @@ class MetaSampler(Sampler):
         n_samples = 0
         running_paths = [_get_empty_running_paths_dict() for _ in range(self.vec_env.num_envs)]
 
-        pbar = ProgBar(self.total_samples)
+        try:
+            pbar = ProgBar(self.total_samples)
+        except OSError:
+            pbar = _NullProgBar()
         agent_time, env_time = 0, 0
 
         # initial reset of envs

@@ -34,32 +34,38 @@ import Few_shot_learning.config as cfg
 
 
 RAW_FIELDS = [
-    "timestamp", "status", "environment_mode", "task_label", "model", "shot_k",
+    "timestamp", "status", "scenario_mode", "environment_mode", "case_name", "task_label", "model", "shot_k",
     "mean_total_cost", "num_query_trajectories", "adapt_updates",
     "adapt_param_delta_l2_mean", "adapt_param_delta_l2_std",
     "support_seed", "query_seed", "run_seconds", "error",
 ]
 
 SUMMARY_FIELDS = [
-    "environment_mode", "model", "shot_k", "n", "mean_total_cost",
+    "scenario_mode", "environment_mode", "model", "shot_k", "n", "mean_total_cost",
     "std_total_cost", "sem_total_cost", "mean_adapt_param_delta_l2",
     "std_adapt_param_delta_l2", "sem_adapt_param_delta_l2",
 ]
 
 TASK_SUMMARY_FIELDS = [
-    "environment_mode", "task_label", "model", "shot_k", "n", "mean_total_cost",
+    "scenario_mode", "environment_mode", "case_name", "task_label", "model", "shot_k", "n", "mean_total_cost",
     "std_total_cost", "sem_total_cost",
+]
+
+CASE_SUMMARY_FIELDS = [
+    "scenario_mode", "environment_mode", "case_name", "model", "shot_k", "n",
+    "mean_total_cost", "std_total_cost", "sem_total_cost",
 ]
 
 PROGRESS_FIELDS = [
     "timestamp", "completed_runs", "total_runs", "progress_pct", "environment_mode",
-    "task_label", "model", "shot_k", "status", "run_seconds", "elapsed_seconds",
+    "case_name", "task_label", "model", "shot_k", "status", "run_seconds", "elapsed_seconds",
     "eta_seconds", "eta_finish_local",
 ]
 
 
 @dataclass
 class EvalSettings:
+    scenario_mode: str
     shots: List[int]
     environment_modes: List[str]
     stationary_scenario_count: int
@@ -75,6 +81,7 @@ class EvalSettings:
 
 def default_settings() -> EvalSettings:
     return EvalSettings(
+        scenario_mode=str(cfg.SCENARIO_MODE),
         shots=list(cfg.EVAL_SHOTS),
         environment_modes=list(cfg.ENVIRONMENT_MODES),
         stationary_scenario_count=int(cfg.RANDOMIZED_STATIONARY_SCENARIO_COUNT),
@@ -400,7 +407,13 @@ def _generate_stationary_tasks(count: int) -> List[Dict[str, Any]]:
     kwargs["seed"] = stable_seed("stationary_task_pool")
     scenarios = create_scenarios(**kwargs)
     return [
-        {"mode": "stationary", "task_id": idx, "task_label": f"Randomized_Stationary_{idx:03d}", "scenario": copy.deepcopy(scenario)}
+        {
+            "mode": "stationary",
+            "case_name": "All",
+            "task_id": idx,
+            "task_label": f"Randomized_Stationary_{idx:03d}",
+            "scenario": copy.deepcopy(scenario),
+        }
         for idx, scenario in enumerate(scenarios, start=1)
     ]
 
@@ -418,11 +431,43 @@ def _generate_nonstationary_tasks(count: int) -> List[Dict[str, Any]]:
         tasks.append(
             {
                 "mode": "nonstationary",
+                "case_name": "All",
                 "task_id": index + 1,
                 "task_label": f"Randomized_Nonstationary_{index + 1:03d}",
                 "segment_scenarios": [copy.deepcopy(x) for x in scenarios[start:end]],
             }
         )
+    return tasks
+
+
+def _generate_case_randomized_stationary_tasks(count_per_case: int) -> List[Dict[str, Any]]:
+    tasks = []
+    next_task_id = 1
+    for case_index, case_cfg in enumerate(cfg.CASE_RANDOMIZED_CASES, start=1):
+        case_name = str(case_cfg["name"])
+        kwargs = dict(cfg.RANDOMIZED_SCENARIO_SAMPLING_OVERRIDES)
+        kwargs.update(
+            {
+                "num_scenarios": int(count_per_case),
+                "seed": stable_seed("case_randomized", case_name),
+                "demand_min": int(case_cfg["demand_min"]),
+                "demand_max": int(case_cfg["demand_max"]),
+                "leadtime_min": int(case_cfg["leadtime_min"]),
+                "leadtime_max": int(case_cfg["leadtime_max"]),
+            }
+        )
+        scenarios = create_scenarios(**kwargs)
+        for scenario_index, scenario in enumerate(scenarios, start=1):
+            tasks.append(
+                {
+                    "mode": "stationary",
+                    "case_name": case_name,
+                    "task_id": next_task_id,
+                    "task_label": f"CaseRandomized_{case_index:02d}_{case_name}_{scenario_index:03d}",
+                    "scenario": copy.deepcopy(scenario),
+                }
+            )
+            next_task_id += 1
     return tasks
 
 
@@ -442,6 +487,13 @@ def _validate_modes(modes: Sequence[str]) -> List[str]:
     invalid = [mode for mode in normalized if mode not in {"stationary", "nonstationary"}]
     if invalid:
         raise ValueError(f"Unsupported environment modes: {invalid}")
+    return normalized
+
+
+def _validate_scenario_mode(scenario_mode: str) -> str:
+    normalized = str(scenario_mode).strip().lower()
+    if normalized not in {"randomized", "case_randomized"}:
+        raise ValueError(f"Unsupported scenario mode: {scenario_mode}")
     return normalized
 
 
@@ -478,22 +530,63 @@ def _plot_boxplot(rows: Sequence[Dict[str, Any]], environment_mode: str, output_
     fig.savefig(output_path, dpi=150)
     plt.close(fig)
 
+
+def _plot_case_boxplot(rows: Sequence[Dict[str, Any]], case_name: str, output_path: Path) -> None:
+    case_rows = [row for row in rows if str(row.get("case_name", "")) == case_name]
+    if not case_rows:
+        fig, ax = plt.subplots(figsize=(8, 4))
+        ax.axis("off")
+        ax.text(0.5, 0.5, f"No rows were generated for case {case_name}.", ha="center", va="center")
+        fig.tight_layout()
+        fig.savefig(output_path, dpi=150)
+        plt.close(fig)
+        return
+
+    shots = sorted({int(row["shot_k"]) for row in case_rows})
+    models = [name for name in cfg.PLOT_MODEL_ORDER if name in {str(row['model']) for row in case_rows}]
+    labels = []
+    data = []
+    for model_name in models:
+        for shot_k in shots:
+            vals = [float(row["mean_total_cost"]) for row in case_rows if str(row["model"]) == model_name and int(row["shot_k"]) == shot_k]
+            if vals:
+                labels.append(f"{model_name}\nK={shot_k}")
+                data.append(vals)
+
+    fig, ax = plt.subplots(figsize=(max(8, len(data)), 6))
+    ax.boxplot(data, labels=labels, showmeans=True)
+    ax.set_title(f"{case_name} Total Cost Comparison")
+    ax.set_xlabel("Model and Shot K")
+    ax.set_ylabel("Mean Total Cost")
+    ax.grid(alpha=0.3)
+    plt.setp(ax.get_xticklabels(), rotation=30, ha="right")
+    fig.tight_layout()
+    fig.savefig(output_path, dpi=150)
+    plt.close(fig)
+
 def run_experiment(settings: Optional[EvalSettings] = None, selected_models: Optional[Sequence[str]] = None, output_root: Optional[Path] = None) -> Dict[str, Any]:
     settings = settings or default_settings()
+    settings.scenario_mode = _validate_scenario_mode(settings.scenario_mode)
     settings.environment_modes = _validate_modes(settings.environment_modes)
     settings.shots = sorted({max(0, int(shot)) for shot in settings.shots})
     if int(settings.num_tasks) != 1:
         raise ValueError("This randomized evaluator currently supports NUM_TASKS=1 only.")
     if not settings.shots:
         raise ValueError("At least one shot value is required.")
+    if settings.scenario_mode == "case_randomized" and settings.environment_modes != ["stationary"]:
+        raise ValueError("case_randomized mode supports stationary evaluation only.")
 
     models = _select_models(selected_models)
     output_root = Path(output_root) if output_root is not None else Path(cfg.RESULTS_ROOT)
     run_dir = output_root / datetime.now().strftime("run_%Y%m%d_%H%M%S")
     run_dir.mkdir(parents=True, exist_ok=True)
 
-    stationary_tasks = _generate_stationary_tasks(int(settings.stationary_scenario_count)) if "stationary" in settings.environment_modes else []
-    nonstationary_tasks = _generate_nonstationary_tasks(int(settings.nonstationary_sequence_count)) if "nonstationary" in settings.environment_modes else []
+    if settings.scenario_mode == "case_randomized":
+        stationary_tasks = _generate_case_randomized_stationary_tasks(int(cfg.CASE_RANDOMIZED_SCENARIO_COUNT_PER_CASE))
+        nonstationary_tasks = []
+    else:
+        stationary_tasks = _generate_stationary_tasks(int(settings.stationary_scenario_count)) if "stationary" in settings.environment_modes else []
+        nonstationary_tasks = _generate_nonstationary_tasks(int(settings.nonstationary_sequence_count)) if "nonstationary" in settings.environment_modes else []
     task_specs = list(stationary_tasks) + list(nonstationary_tasks)
 
     raw_csv = run_dir / "raw_results.csv"
@@ -502,6 +595,7 @@ def run_experiment(settings: Optional[EvalSettings] = None, selected_models: Opt
     progress_txt = run_dir / "progress_latest.txt"
     summary_csv = run_dir / "summary_by_mode_model_shot.csv"
     task_summary_csv = run_dir / "summary_by_task_model_shot.csv"
+    case_summary_csv = run_dir / "summary_by_case_model_shot.csv"
     stationary_plot = run_dir / "stationary_boxplot_total_cost.png"
     nonstationary_plot = run_dir / "nonstationary_boxplot_total_cost.png"
 
@@ -510,6 +604,7 @@ def run_experiment(settings: Optional[EvalSettings] = None, selected_models: Opt
         {
             "created_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             "run_dir": str(run_dir),
+            "scenario_mode": settings.scenario_mode,
             "random_seed": int(cfg.RANDOM_SEED),
             "days": int(cfg.DAYS),
             "shots": list(settings.shots),
@@ -524,6 +619,8 @@ def run_experiment(settings: Optional[EvalSettings] = None, selected_models: Opt
             "checkpoint_load_mode": str(cfg.CHECKPOINT_LOAD_MODE),
             "models": models,
             "scenario_sampling_overrides": dict(cfg.RANDOMIZED_SCENARIO_SAMPLING_OVERRIDES),
+            "case_randomized_scenario_count_per_case": int(cfg.CASE_RANDOMIZED_SCENARIO_COUNT_PER_CASE),
+            "case_randomized_cases": copy.deepcopy(cfg.CASE_RANDOMIZED_CASES),
         },
     )
     _write_json(run_dir / "stationary_task_pool.json", {"tasks": copy.deepcopy(stationary_tasks)})
@@ -542,9 +639,10 @@ def run_experiment(settings: Optional[EvalSettings] = None, selected_models: Opt
             for model_spec in models:
                 task_label = str(task["task_label"])
                 environment_mode = str(task["mode"])
+                case_name = str(task.get("case_name", "All"))
                 model_name = str(model_spec["name"])
                 run_started = datetime.now()
-                print(f"[FewShot-Randomized] {completed_runs + 1}/{total_runs} -> mode={environment_mode}, task={task_label}, model={model_name}, shot={shot_k}")
+                print(f"[FewShot-Randomized] {completed_runs + 1}/{total_runs} -> mode={environment_mode}, case={case_name}, task={task_label}, model={model_name}, shot={shot_k}")
 
                 status = "ok"
                 error_text = ""
@@ -590,7 +688,9 @@ def run_experiment(settings: Optional[EvalSettings] = None, selected_models: Opt
                         return {
                             "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
                             "status": "ok",
+                            "scenario_mode": settings.scenario_mode,
                             "environment_mode": environment_mode,
+                            "case_name": case_name,
                             "task_label": task_label,
                             "model": model_name,
                             "shot_k": int(shot_k),
@@ -621,10 +721,12 @@ def run_experiment(settings: Optional[EvalSettings] = None, selected_models: Opt
                     error_text = f"{type(exc).__name__}: {exc}"
                     _append_csv_row(
                         error_csv,
-                        ["timestamp", "environment_mode", "task_label", "model", "shot_k", "error", "traceback"],
+                        ["timestamp", "scenario_mode", "environment_mode", "case_name", "task_label", "model", "shot_k", "error", "traceback"],
                         {
                             "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                            "scenario_mode": settings.scenario_mode,
                             "environment_mode": environment_mode,
+                            "case_name": case_name,
                             "task_label": task_label,
                             "model": model_name,
                             "shot_k": int(shot_k),
@@ -638,7 +740,9 @@ def run_experiment(settings: Optional[EvalSettings] = None, selected_models: Opt
                         {
                             "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
                             "status": "error",
+                            "scenario_mode": settings.scenario_mode,
                             "environment_mode": environment_mode,
+                            "case_name": case_name,
                             "task_label": task_label,
                             "model": model_name,
                             "shot_k": int(shot_k),
@@ -675,6 +779,7 @@ def run_experiment(settings: Optional[EvalSettings] = None, selected_models: Opt
                         "progress_pct": f"{progress_pct:.2f}",
                         "environment_mode": environment_mode,
                         "task_label": task_label,
+                        "case_name": case_name,
                         "model": model_name,
                         "shot_k": int(shot_k),
                         "status": status,
@@ -689,7 +794,9 @@ def run_experiment(settings: Optional[EvalSettings] = None, selected_models: Opt
                         f"completed_runs={completed_runs}\n"
                         f"total_runs={total_runs}\n"
                         f"progress_pct={progress_pct:.2f}\n"
+                        f"scenario_mode={settings.scenario_mode}\n"
                         f"last_environment_mode={environment_mode}\n"
+                        f"last_case_name={case_name}\n"
                         f"last_task_label={task_label}\n"
                         f"last_model={model_name}\n"
                         f"last_shot_k={int(shot_k)}\n"
@@ -706,17 +813,21 @@ def run_experiment(settings: Optional[EvalSettings] = None, selected_models: Opt
 
     summary_rows = []
     task_summary_rows = []
+    case_summary_rows = []
     grouped = {}
     grouped_task = {}
+    grouped_case = {}
     for row in ok_rows:
-        key = (str(row["environment_mode"]), str(row["model"]), int(row["shot_k"]))
+        key = (str(row["scenario_mode"]), str(row["environment_mode"]), str(row["model"]), int(row["shot_k"]))
         grouped.setdefault(key, {"cost": [], "delta": []})
         grouped[key]["cost"].append(float(row["mean_total_cost"]))
         grouped[key]["delta"].append(float(row.get("adapt_param_delta_l2_mean", 0.0)))
-        task_key = (str(row["environment_mode"]), str(row["task_label"]), str(row["model"]), int(row["shot_k"]))
+        task_key = (str(row["scenario_mode"]), str(row["environment_mode"]), str(row.get("case_name", "All")), str(row["task_label"]), str(row["model"]), int(row["shot_k"]))
         grouped_task.setdefault(task_key, []).append(float(row["mean_total_cost"]))
+        case_key = (str(row["scenario_mode"]), str(row["environment_mode"]), str(row.get("case_name", "All")), str(row["model"]), int(row["shot_k"]))
+        grouped_case.setdefault(case_key, []).append(float(row["mean_total_cost"]))
 
-    for (environment_mode, model, shot_k), values in sorted(grouped.items()):
+    for (scenario_mode, environment_mode, model, shot_k), values in sorted(grouped.items()):
         cost_arr = np.asarray(values["cost"], dtype=float)
         delta_arr = np.asarray(values["delta"], dtype=float)
         n = int(cost_arr.size)
@@ -724,6 +835,7 @@ def run_experiment(settings: Optional[EvalSettings] = None, selected_models: Opt
         delta_std = float(np.std(delta_arr, ddof=1)) if n > 1 else 0.0
         summary_rows.append(
             {
+                "scenario_mode": scenario_mode,
                 "environment_mode": environment_mode,
                 "model": model,
                 "shot_k": int(shot_k),
@@ -737,14 +849,34 @@ def run_experiment(settings: Optional[EvalSettings] = None, selected_models: Opt
             }
         )
 
-    for (environment_mode, task_label, model, shot_k), values in sorted(grouped_task.items()):
+    for (scenario_mode, environment_mode, case_name, task_label, model, shot_k), values in sorted(grouped_task.items()):
         arr = np.asarray(values, dtype=float)
         n = int(arr.size)
         std = float(np.std(arr, ddof=1)) if n > 1 else 0.0
         task_summary_rows.append(
             {
+                "scenario_mode": scenario_mode,
                 "environment_mode": environment_mode,
+                "case_name": case_name,
                 "task_label": task_label,
+                "model": model,
+                "shot_k": int(shot_k),
+                "n": n,
+                "mean_total_cost": float(np.mean(arr)) if n else float("nan"),
+                "std_total_cost": std,
+                "sem_total_cost": float(std / math.sqrt(n)) if n > 1 else 0.0,
+            }
+        )
+
+    for (scenario_mode, environment_mode, case_name, model, shot_k), values in sorted(grouped_case.items()):
+        arr = np.asarray(values, dtype=float)
+        n = int(arr.size)
+        std = float(np.std(arr, ddof=1)) if n > 1 else 0.0
+        case_summary_rows.append(
+            {
+                "scenario_mode": scenario_mode,
+                "environment_mode": environment_mode,
+                "case_name": case_name,
                 "model": model,
                 "shot_k": int(shot_k),
                 "n": n,
@@ -756,8 +888,13 @@ def run_experiment(settings: Optional[EvalSettings] = None, selected_models: Opt
 
     _write_csv(summary_csv, SUMMARY_FIELDS, summary_rows)
     _write_csv(task_summary_csv, TASK_SUMMARY_FIELDS, task_summary_rows)
+    _write_csv(case_summary_csv, CASE_SUMMARY_FIELDS, case_summary_rows)
     _plot_boxplot(ok_rows, "stationary", stationary_plot)
     _plot_boxplot(ok_rows, "nonstationary", nonstationary_plot)
+    if settings.scenario_mode == "case_randomized":
+        for case_cfg in cfg.CASE_RANDOMIZED_CASES:
+            case_name = str(case_cfg["name"])
+            _plot_case_boxplot(ok_rows, case_name, run_dir / f"case_boxplot_{case_name}.png")
 
     finished = datetime.now()
     final_report = {
@@ -772,6 +909,7 @@ def run_experiment(settings: Optional[EvalSettings] = None, selected_models: Opt
         "raw_csv": str(raw_csv),
         "summary_csv": str(summary_csv),
         "task_summary_csv": str(task_summary_csv),
+        "case_summary_csv": str(case_summary_csv),
         "progress_csv": str(progress_csv),
         "progress_txt": str(progress_txt),
         "stationary_boxplot": str(stationary_plot),

@@ -1,36 +1,39 @@
 # Evaluation
 
-`Evaluation` 폴더는 휴리스틱 정책(`R1`, `R3`, `R5`)과 사전학습 모델(`PPO`, `ProMP`)의 총비용(`Total Cost`)을 비교하기 위한 독립 실행 코드입니다.
+Policy-comparison experiments for heuristic baselines and pretrained RL policies.
 
-## 실행
+## What is in this folder
 
-프로젝트 루트(`AIIS_META_RL`)에서:
+- `run_policy_comparison.py`: main evaluation entry point
+- `config.py`: model paths, seeds, scenario counts, and evaluation settings
+- `outputs/`: timestamped evaluation outputs
 
-```powershell
+## Compared methods
+
+The evaluation compares:
+
+- heuristic baselines: `R1`, `R3`, `R5`
+- pretrained RL policies: `PPO`, `ProMP`
+
+## Main entry point
+
+Run from the repository root:
+
+```bash
 python -m Evaluation.run_policy_comparison
 ```
 
-옵션 예시:
+Examples:
 
-```powershell
+```bash
 python -m Evaluation.run_policy_comparison --days 200 --stationary-num-scenarios-per-seed 100 --nonstationary-num-sequences-per-seed 100
+python -m Evaluation.run_policy_comparison --seeds 2026 2027 2028 2029 2030
+python -m Evaluation.run_policy_comparison --scenario-mode fixed
 ```
 
-멀티시드 예시:
+## Main configuration
 
-```powershell
-python -m Evaluation.run_policy_comparison --seeds 2026 2027 2028 2029 2030 2031 2032 2033 2034 2035 --stationary-num-scenarios-per-seed 100 --nonstationary-num-sequences-per-seed 100
-```
-
-고정 시나리오 모드 예시(Few_shot_learning의 `FIXED_SCENARIO_CASES` 5개 사용):
-
-```powershell
-python -m Evaluation.run_policy_comparison --scenario-mode fixed --seeds 2026 2027 2028 2029 2030 2031 2032 2033 2034 2035 --nonstationary-num-sequences-per-seed 5
-```
-
-## 설정 파일
-
-`Evaluation/config.py`에서 아래 항목을 수정할 수 있습니다.
+Key settings are defined in `Evaluation/config.py`:
 
 - `PRETRAINED_PROMP_MODEL_PATH`
 - `PRETRAINED_PPO_MODEL_PATH`
@@ -42,14 +45,26 @@ python -m Evaluation.run_policy_comparison --scenario-mode fixed --seeds 2026 20
 - `SCENARIO_SAMPLING_OVERRIDES`
 - `METHODS`
 
-## 결과
+## Outputs
 
-결과는 `Evaluation/outputs/run_YYYYMMDD_HHMMSS/` 아래에 저장됩니다.
+Each run is written to:
 
-- `policy_comparison_results.csv`
-- `stationary_results.csv`
-- `nonstationary_results.csv`
-- `boxplot_stationary_total_cost.png`
-- `boxplot_nonstationary_total_cost.png`
-- `boxplot_total_cost_all_methods.png`
+- `Evaluation/outputs/run_YYYYMMDD_HHMMSS/`
+
+Typical outputs include:
+
+- `episode_results.csv`
 - `summary_by_environment_method.csv`
+- `stationary_boxplot_total_cost.png`
+- `nonstationary_boxplot_total_cost.png`
+- `significance_promp_vs_others_by_environment.csv`
+- `significance_promp_vs_others_by_scenario.csv`
+- `significance_promp_vs_others_heatmap.png`
+- `stationary_cost_composition.png`
+- `nonstationary_cost_composition.png`
+
+## Notes
+
+- Paired evaluations are used so that all methods see identical scenario realizations.
+- The evaluation pipeline can generate box plots, significance tables, and cost-composition figures.
+- Significance testing is implemented for `ProMP` against the comparator methods.

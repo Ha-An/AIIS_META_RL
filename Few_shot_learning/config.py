@@ -17,9 +17,9 @@ RESULTS_ROOT = ROOT_DIR / "Few_shot_learning" / "runs"
 # These are the exact paths requested by the user.
 # -----------------------------------------------------------------------------
 # PRETRAINED_PROMP_MODEL_PATH = r"C:\Github\AIIS_META_RL\AIIS_META\Saved_model\Train_21\saved_model_final"
-PRETRAINED_PROMP_MODEL_PATH = r"C:\Github\AIIS_META_RL\AIIS_META\Saved_model\Train_21\saved_model_best_totalcost_last_window"
+PRETRAINED_PROMP_MODEL_PATH = r"C:\Github\AIIS_META_RL\AIIS_META\Saved_model\Train_23\saved_model_best_totalcost_last_window"
 # PRETRAINED_PROMP_MODEL_PATH = r"C:\Github\AIIS_META_RL\AIIS_META\Saved_model\Train_21\saved_model_best_fewshot"
-PRETRAINED_PPO_MODEL_PATH = r"C:\Github\AIIS_META_RL\DRL\Saved_model\Train_4\PPO_Randomized\saved_model"
+PRETRAINED_PPO_MODEL_PATH = r"C:\Github\AIIS_META_RL\DRL\Saved_model\Train_8\PPO_Randomized\saved_model"
 
 MODEL_SPECS = [
     {"name": "PPO", "checkpoint_path": PRETRAINED_PPO_MODEL_PATH},
@@ -38,7 +38,14 @@ DAYS = 200
 # -----------------------------------------------------------------------------
 # Evaluation modes
 # -----------------------------------------------------------------------------
-ENVIRONMENT_MODES = ["stationary", "nonstationary"]
+# SCENARIO_MODE:
+# - randomized: use the original full-range scenario generator
+# - case_randomized: generate stationary-only tasks from one of four narrowed
+#   demand/leadtime range cases
+SCENARIO_MODE = "case_randomized"
+
+#ENVIRONMENT_MODES = ["stationary", "nonstationary"]
+ENVIRONMENT_MODES = ["stationary"]
 NONSTATIONARY_SEGMENTS = [
     (1, 50),
     (51, 100),
@@ -56,8 +63,8 @@ NONSTATIONARY_SEGMENTS = [
 # EVAL_ADAPT_UPDATES:
 #   Number of inner updates applied while reusing the same K support trajectories.
 # -----------------------------------------------------------------------------
-EVAL_SHOTS = [0, 1, 2, 3]
-QUERY_ROLLOUT_PER_TASK = 10
+EVAL_SHOTS = [1, 2, 3] 
+QUERY_ROLLOUT_PER_TASK = 20
 EVAL_ADAPT_UPDATES = 3
 
 
@@ -69,8 +76,45 @@ EVAL_ADAPT_UPDATES = 3
 #   Number of nonstationary 3-segment task sequences to generate.
 # The same generated task is evaluated for both PPO and ProMP.
 # -----------------------------------------------------------------------------
-RANDOMIZED_STATIONARY_SCENARIO_COUNT = 30
-RANDOMIZED_NONSTATIONARY_SEQUENCE_COUNT = 30
+RANDOMIZED_STATIONARY_SCENARIO_COUNT = 20
+RANDOMIZED_NONSTATIONARY_SEQUENCE_COUNT = 20
+
+# -----------------------------------------------------------------------------
+# Case-randomized workload
+# This mode ignores nonstationary evaluation. Each case narrows the demand and
+# leadtime sampling range before scenarios are generated.
+# -----------------------------------------------------------------------------
+CASE_RANDOMIZED_SCENARIO_COUNT_PER_CASE = 50
+CASE_RANDOMIZED_CASES = [
+    {
+        "name": "HighDemand_LongLead",
+        "demand_min": 11,
+        "demand_max": 20,
+        "leadtime_min": 4,
+        "leadtime_max": 7,
+    },
+    {
+        "name": "HighDemand_ShortLead",
+        "demand_min": 11,
+        "demand_max": 20,
+        "leadtime_min": 1,
+        "leadtime_max": 4,
+    },
+    {
+        "name": "LowDemand_LongLead",
+        "demand_min": 1,
+        "demand_max": 10,
+        "leadtime_min": 4,
+        "leadtime_max": 7,
+    },
+    {
+        "name": "LowDemand_ShortLead",
+        "demand_min": 1,
+        "demand_max": 10,
+        "leadtime_min": 1,
+        "leadtime_max": 4,
+    },
+]
 
 # ----------------------------------------------------------------------------
 # Model reconstruction settings for evaluation.
@@ -81,7 +125,7 @@ RANDOMIZED_NONSTATIONARY_SEQUENCE_COUNT = 30
 BASE_MODEL_CONFIG = {
     "policy_dist": "categorical",
     "layers": [64, 64, 64],
-    "alpha": 0.003,
+    "alpha": 0.01, #0.003
     "learn_std": True,
     "trainable_learning_rate": True,
     "inner_step_size_max": 0.05,

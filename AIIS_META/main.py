@@ -1,6 +1,7 @@
 import os
 import sys
 import json
+import random
 from collections import OrderedDict
 from pathlib import Path
 import numpy as np
@@ -21,6 +22,17 @@ from AIIS_META.Sampler.meta_sample_processor import MetaSampleProcessor
 import torch
 from envs.config_folders import *
 import time
+
+
+def _set_global_seed(seed: int):
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(seed)
+    # Keep deterministic mode optional; default False for speed.
+    torch.backends.cudnn.deterministic = False
+    torch.backends.cudnn.benchmark = True
 
 
 def _build_fewshot_validation_tasks(params):
@@ -136,7 +148,33 @@ def _evaluate_fewshot_validation(meta_algo, validation_tasks, params):
     return step_costs, score, weighted_gain
 
 
+def _extract_total_cost_from_logging_infos(logging_infos):
+    total_cost = None
+    if isinstance(logging_infos.get("cost"), dict):
+        cost_vals = []
+        for v in logging_infos["cost"].values():
+            if isinstance(v, torch.Tensor):
+                v = v.item()
+            if isinstance(v, (int, float, np.generic)):
+                cost_vals.append(float(v))
+        if cost_vals:
+            total_cost = float(np.sum(cost_vals))
+    if total_cost is None:
+        for k in ("TotalCost", "total_cost", "cost_total"):
+            if k in logging_infos:
+                v = logging_infos[k]
+                if isinstance(v, torch.Tensor):
+                    v = v.item()
+                if isinstance(v, (int, float, np.generic)):
+                    total_cost = float(v)
+                    break
+    return total_cost
+
+
 def main(params):
+    seed = int(params.get("seed", 2026))
+    _set_global_seed(seed)
+    print(f"[Seed] Global training seed fixed: {seed}")
 
     env = MetaEnv()
     obs_dim = int(np.prod(env.observation_space.shape))
@@ -202,71 +240,144 @@ def main(params):
     last_ckpt_path = os.path.join(SAVED_MODEL_PATH, "saved_model_final")
     best_ckpt_path = os.path.join(SAVED_MODEL_PATH, "saved_model_best_fewshot")
     best_meta_path = os.path.join(SAVED_MODEL_PATH, "saved_model_best_fewshot_meta.json")
+    best_totalcost_ckpt_path = os.path.join(SAVED_MODEL_PATH, "saved_model_best_totalcost_last_window")
+    best_totalcost_meta_path = os.path.join(SAVED_MODEL_PATH, "saved_model_best_totalcost_last_window_meta.json")
 
     # Held-out few-shot validation setup (for best-checkpoint selection)
     val_cfg = dict(params.get("fewshot_validation", {}))
     val_enabled = bool(val_cfg.get("enabled", False))
     best_state = {"score": float("inf"), "epoch": -1, "step_costs": {}}
     epoch_callback = None
+    validation_tasks = None
+    val_interval = None
+    val_steps = None
+
+    total_epochs = int(params["epochs"])
+    save_totalcost_from_last_epochs = max(1, int(val_cfg.get("save_best_totalcost_from_last_epochs", 500)))
+    best_totalcost_save_start_epoch = max(1, total_epochs - save_totalcost_from_last_epochs)
+    best_totalcost_state = {"total_cost": float("inf"), "epoch": -1}
+
+    print(
+        "[TotalCost-Checkpoint] enabled: "
+        f"save_start_epoch={best_totalcost_save_start_epoch}, "
+        f"window_last_epochs={save_totalcost_from_last_epochs}"
+    )
 
     if val_enabled:
         validation_tasks = _build_fewshot_validation_tasks(params)
         val_interval = max(1, int(val_cfg.get("interval", 20)))
         val_steps = sorted(set(int(s) for s in val_cfg.get("adapt_steps", [0, 1, 2, 3, 5])))
+        save_from_last_epochs = max(1, int(val_cfg.get("save_best_from_last_epochs", 500)))
+        best_save_start_epoch = max(1, total_epochs - save_from_last_epochs)
 
         print(
             "[FewShot-Validation] enabled: "
             f"interval={val_interval}, steps={val_steps}, "
-            f"num_tasks={len(validation_tasks)}, seed={val_cfg.get('seed', 2026)}"
+            f"num_tasks={len(validation_tasks)}, seed={val_cfg.get('seed', 2026)}, "
+            f"best_save_start_epoch={best_save_start_epoch}"
         )
 
-        def _on_epoch_end(epoch, algo, paths, logging_infos):
-            epoch_idx = int(epoch) + 1
-            if (epoch_idx % val_interval != 0) and (epoch_idx != int(params["epochs"])):
-                return
+    def _on_epoch_end(epoch, algo, paths, logging_infos):
+        epoch_idx = int(epoch) + 1
 
-            step_costs, score, gain = _evaluate_fewshot_validation(algo, validation_tasks, params)
+        # (A) Best TotalCost checkpoint in last window
+        total_cost = _extract_total_cost_from_logging_infos(logging_infos)
+        if (
+            total_cost is not None
+            and np.isfinite(total_cost)
+            and epoch_idx >= best_totalcost_save_start_epoch
+            and total_cost < best_totalcost_state["total_cost"]
+        ):
+            best_totalcost_state["total_cost"] = float(total_cost)
+            best_totalcost_state["epoch"] = epoch_idx
+            torch.save(algo.state_dict(), best_totalcost_ckpt_path)
+            with open(best_totalcost_meta_path, "w", encoding="utf-8") as f:
+                json.dump(
+                    {
+                        "best_epoch": best_totalcost_state["epoch"],
+                        "best_total_cost": best_totalcost_state["total_cost"],
+                        "checkpoint_selection": "min_total_cost_in_last_window",
+                        "best_save_start_epoch": best_totalcost_save_start_epoch,
+                        "save_best_totalcost_from_last_epochs": save_totalcost_from_last_epochs,
+                    },
+                    f,
+                    indent=2,
+                )
             print(
-                f"[FewShot-Validation] epoch={epoch_idx}, "
-                f"score={score:.4f}, gain={gain:.4f}, step_costs={step_costs}"
+                "[Checkpoint] new best total-cost model saved: "
+                f"epoch={best_totalcost_state['epoch']}, total_cost={best_totalcost_state['total_cost']:.4f}, "
+                f"path={best_totalcost_ckpt_path}"
             )
 
-            if hasattr(algo, "writer"):
-                algo.writer.add_scalar("FewShotVal/Score", score, global_step=epoch)
-                algo.writer.add_scalar("FewShotVal/AdaptGain", gain, global_step=epoch)
-                for step, cost in sorted(step_costs.items()):
-                    algo.writer.add_scalar(f"FewShotVal/TotalCost_Step{step}", cost, global_step=epoch)
+        # (B) Existing few-shot based best checkpoint
+        if not val_enabled:
+            return
+        if (epoch_idx % val_interval != 0) and (epoch_idx != int(params["epochs"])):
+            return
 
-            if np.isfinite(score) and score < best_state["score"]:
-                best_state["score"] = float(score)
-                best_state["epoch"] = epoch_idx
-                best_state["step_costs"] = dict(step_costs)
-                torch.save(algo.state_dict(), best_ckpt_path)
-                with open(best_meta_path, "w", encoding="utf-8") as f:
-                    json.dump(
-                        {
-                            "best_epoch": best_state["epoch"],
-                            "best_score": best_state["score"],
-                            "step_costs": best_state["step_costs"],
-                            "adapt_steps": val_steps,
-                            "checkpoint_selection": "weighted_adaptation_gain",
-                            "gain_weights": dict(val_cfg.get("gain_weights", {0: 0.0, 1: 0.25, 2: 0.25, 3: 0.25, 5: 0.25})),
-                            "interval": val_interval,
-                            "validation_num_tasks": len(validation_tasks),
-                            "validation_seed": int(val_cfg.get("seed", 2026)),
-                        },
-                        f,
-                        indent=2,
-                    )
-                print(
-                    "[Checkpoint] new best few-shot model saved: "
-                    f"epoch={best_state['epoch']}, score={best_state['score']:.4f}, path={best_ckpt_path}"
+        step_costs, score, gain = _evaluate_fewshot_validation(algo, validation_tasks, params)
+        print(
+            f"[FewShot-Validation] epoch={epoch_idx}, "
+            f"score={score:.4f}, gain={gain:.4f}, step_costs={step_costs}"
+        )
+
+        if hasattr(algo, "writer"):
+            algo.writer.add_scalar("FewShotVal/Score", score, global_step=epoch)
+            algo.writer.add_scalar("FewShotVal/AdaptGain", gain, global_step=epoch)
+            for step, cost in sorted(step_costs.items()):
+                algo.writer.add_scalar(f"FewShotVal/TotalCost_Step{step}", cost, global_step=epoch)
+
+        if epoch_idx < best_save_start_epoch:
+            return
+
+        if np.isfinite(score) and score < best_state["score"]:
+            best_state["score"] = float(score)
+            best_state["epoch"] = epoch_idx
+            best_state["step_costs"] = dict(step_costs)
+            torch.save(algo.state_dict(), best_ckpt_path)
+            with open(best_meta_path, "w", encoding="utf-8") as f:
+                json.dump(
+                    {
+                        "best_epoch": best_state["epoch"],
+                        "best_score": best_state["score"],
+                        "step_costs": best_state["step_costs"],
+                        "adapt_steps": val_steps,
+                        "checkpoint_selection": "weighted_adaptation_gain",
+                        "gain_weights": dict(val_cfg.get("gain_weights", {0: 0.0, 1: 0.25, 2: 0.25, 3: 0.25, 5: 0.25})),
+                        "interval": val_interval,
+                        "best_save_start_epoch": best_save_start_epoch,
+                        "save_best_from_last_epochs": save_from_last_epochs,
+                        "validation_num_tasks": len(validation_tasks),
+                        "validation_seed": int(val_cfg.get("seed", 2026)),
+                    },
+                    f,
+                    indent=2,
                 )
+            print(
+                "[Checkpoint] new best few-shot model saved: "
+                f"epoch={best_state['epoch']}, score={best_state['score']:.4f}, path={best_ckpt_path}"
+            )
 
-        epoch_callback = _on_epoch_end
+    epoch_callback = _on_epoch_end
 
     meta_algo.learn(params["epochs"], epoch_callback=epoch_callback)
     torch.save(meta_algo.state_dict(), last_ckpt_path)
+
+    if best_totalcost_state["epoch"] < 0:
+        torch.save(meta_algo.state_dict(), best_totalcost_ckpt_path)
+        with open(best_totalcost_meta_path, "w", encoding="utf-8") as f:
+            json.dump(
+                {
+                    "best_epoch": int(params["epochs"]),
+                    "best_total_cost": None,
+                    "checkpoint_selection": "min_total_cost_in_last_window",
+                    "best_save_start_epoch": best_totalcost_save_start_epoch,
+                    "save_best_totalcost_from_last_epochs": save_totalcost_from_last_epochs,
+                    "note": "No total-cost checkpoint found in the configured window; copied final model.",
+                },
+                f,
+                indent=2,
+            )
 
     if val_enabled and best_state["epoch"] < 0:
         torch.save(meta_algo.state_dict(), best_ckpt_path)
@@ -277,7 +388,9 @@ def main(params):
                     "best_score": None,
                     "step_costs": {},
                     "adapt_steps": sorted(set(int(s) for s in val_cfg.get("adapt_steps", [0, 1, 2, 3, 5]))),
-                    "note": "No validation-improvement checkpoint was found; copied final model.",
+                    "best_save_start_epoch": best_save_start_epoch if val_enabled else None,
+                    "save_best_from_last_epochs": save_from_last_epochs if val_enabled else None,
+                    "note": "No validation-improvement checkpoint was found in the configured save window; copied final model.",
                 },
                 f,
                 indent=2,
@@ -286,10 +399,15 @@ def main(params):
     if val_enabled:
         print(
             "[Checkpoint] final: "
-            f"last={last_ckpt_path}, best={best_ckpt_path}, meta={best_meta_path}"
+            f"last={last_ckpt_path}, best={best_ckpt_path}, meta={best_meta_path}, "
+            f"best_totalcost={best_totalcost_ckpt_path}, best_totalcost_meta={best_totalcost_meta_path}"
         )
     else:
-        print(f"[Checkpoint] final: {last_ckpt_path}")
+        print(
+            "[Checkpoint] final: "
+            f"last={last_ckpt_path}, "
+            f"best_totalcost={best_totalcost_ckpt_path}, best_totalcost_meta={best_totalcost_meta_path}"
+        )
     
     meta_algo.close()
     
@@ -309,7 +427,7 @@ def main(params):
 if __name__ == "__main__":
     params = {
         # ===== Algorithm Selection =====
-        "algorithm": "ProMP",  # Meta-learning algorithm: "ProMP" (PPO-style with KL penalty) or "VPG_MAML" (vanilla policy gradient)
+        "algorithm": "VPG_MAML",  # Meta-learning algorithm: "ProMP" (PPO-style with KL penalty) or "VPG_MAML" (vanilla policy gradient)
         "policy_dist": "categorical",  # "gaussian" or "categorical"
         
         # ===== Network Architecture =====
@@ -322,20 +440,21 @@ if __name__ == "__main__":
         
         # ===== Meta-Learning Parameters =====
         "alpha": 0.002,  # Inner-loop learning rate (alpha): used for task-specific gradient descent during inner-loop adaptation
-        "inner_step_size_max": 0.02,  # Upper bound for trainable inner step sizes
-        "beta": 0.0005,  # Outer-loop (meta) learning rate (β): used by Adam optimizer to update meta-parameters θ (optimizer = optim.Adam(agent.parameters(), lr=beta))
+        "inner_step_size_max": 0.05,  # Upper bound for trainable inner step sizes
+        "beta": 0.0003,  # Outer-loop (meta) learning rate (β): used by Adam optimizer to update meta-parameters θ (optimizer = optim.Adam(agent.parameters(), lr=beta))
         "num_inner_grad": 3,  # Number of inner gradient descent steps per task during inner_loop (inner adaptation steps)
-        "outer_iters": 5,  # Number of outer-loop meta-updates per epoch WITHOUT re-sampling tasks. For each epoch: inner_loop once, then outer_loop runs self.outer_iters times on same task rollouts
+        "outer_iters": 3,  # Number of outer-loop meta-updates per epoch WITHOUT re-sampling tasks. For each epoch: inner_loop once, then outer_loop runs self.outer_iters times on same task rollouts
         
         # ===== Policy Optimization =====
-        "clip_eps": 0.20,  # PPO clipping epsilon: controls the clipping range in PPO loss (used only by ProMP, not VPG_MAML). Inner loop: -(ratio * A).mean() without clipping
+        "clip_eps": 0.15,  # PPO clipping epsilon: controls the clipping range in PPO loss (used only by ProMP, not VPG_MAML). Inner loop: -(ratio * A).mean() without clipping
         
         # ===== Advantage Estimation =====
         "discount": 0.99,  # Discount factor (γ): used in GAE (Generalized Advantage Estimation) to compute returns: return_t = reward_t + γ * V(s_{t+1})
         "gae_lambda": 1.0,  # GAE lambda (λ): λ=1.0 means standard return (no discounting of TD residuals), λ=0.0 means only 1-step advantage. Controls bias-variance tradeoff in advantage estimation
         
         # ===== Training Configuration =====
-        "epochs": 4000,  # Total number of meta-training epochs (outer loop iterations with new task sampling). Change to 500 for full training
+        "seed": 2026,  # Global random seed for Python/NumPy/PyTorch during training
+        "epochs": 8000,  # Total number of meta-training epochs (outer loop iterations with new task sampling). Change to 500 for full training
         "parallel": True,  # Use multiprocessing for parallel environment sampling. If False, samples sequentially (slower but less memory)
         "learn_std": True,  # Whether the policy's action standard deviation (log_std parameter) is learnable. If False, log_std remains fixed at init value
         
@@ -348,6 +467,8 @@ if __name__ == "__main__":
         "fewshot_validation": {
             "enabled": True,
             "interval": 10,              # Run validation every N epochs (+ final epoch)
+            "save_best_from_last_epochs": 500,  # Save/update best checkpoint only from (epochs - this value)
+            "save_best_totalcost_from_last_epochs": 500,  # Save/update min-TotalCost checkpoint only from (epochs - this value)
             "adapt_steps": [0, 1, 2, 3, 5], # Requested few-shot adaptation steps
             "gain_weights": {0: 0.0, 1: 0.25, 2: 0.25, 3: 0.25, 5: 0.25},  # Best-checkpoint score uses weighted adaptation gain (step0 baseline)
             "num_tasks": 5,              # Fixed held-out task pool size

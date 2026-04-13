@@ -13,7 +13,8 @@ def _parse_name_list(value: str):
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Randomized few-shot PPO vs ProMP evaluator")
+    parser = argparse.ArgumentParser(description="Few-shot PPO vs ProMP evaluator")
+    parser.add_argument("--scenario-mode", type=str, default=None, help="Scenario mode: randomized or case_randomized")
     parser.add_argument("--shots", type=str, default=None, help="Comma-separated shot list, e.g. 0,1,2,3")
     parser.add_argument("--modes", type=str, default=None, help="Comma-separated modes, e.g. stationary,nonstationary")
     parser.add_argument("--models", type=str, default=None, help="Comma-separated model names, e.g. PPO,ProMP")
@@ -27,6 +28,8 @@ def main() -> None:
 
     settings = default_settings()
 
+    if args.scenario_mode:
+        settings.scenario_mode = str(args.scenario_mode).strip()
     if args.shots:
         settings.shots = _parse_int_list(args.shots)
     if args.modes:
@@ -42,7 +45,7 @@ def main() -> None:
 
     if args.smoke:
         settings.shots = [0, 1]
-        settings.environment_modes = ["stationary", "nonstationary"]
+        settings.environment_modes = ["stationary"] if str(settings.scenario_mode).strip().lower() == "case_randomized" else ["stationary", "nonstationary"]
         settings.stationary_scenario_count = 1
         settings.nonstationary_sequence_count = 1
         settings.query_rollout_per_task = 1

@@ -15,6 +15,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import torch
+from scipy.stats import wilcoxon
 
 from Evaluation import config as cfg
 from AIIS_META.Agents.Categorical.Meta_Categorical import MetaCategoricalAgent
@@ -546,6 +547,8 @@ def _save_run_metadata(output_dir: Path, environment_modes: Sequence[str]) -> No
 
 def _plot_placeholder(output_path: Path, title: str, message: str) -> None:
     fig, ax = plt.subplots(figsize=(8, 4))
+    fig.patch.set_facecolor("white")
+    ax.set_facecolor("white")
     ax.axis("off")
     ax.text(0.5, 0.6, title, ha="center", va="center", fontsize=14, fontweight="bold")
     ax.text(0.5, 0.4, message, ha="center", va="center", fontsize=11)
@@ -565,11 +568,14 @@ def _plot_total_cost_boxplot(df: pd.DataFrame, output_path: Path, title: str) ->
         return
 
     fig, ax = plt.subplots(figsize=(10, 6))
+    fig.patch.set_facecolor("white")
+    ax.set_facecolor("white")
     data = [df.loc[df["method"] == method, "total_cost"].to_numpy() for method in order]
     ax.boxplot(data, tick_labels=order, showmeans=True)
     ax.set_title(title)
     ax.set_xlabel("Method")
     ax.set_ylabel("Total Cost")
+    ax.set_ylim(0, 55000)
     ax.grid(alpha=0.3)
     fig.tight_layout()
     fig.savefig(output_path, dpi=180)
@@ -591,9 +597,11 @@ def _plot_fixed_stationary_by_case(df: pd.DataFrame, output_path: Path) -> None:
     ncols = 2
     nrows = int(np.ceil(len(labels) / ncols))
     fig, axes = plt.subplots(nrows, ncols, figsize=(12, 4 * nrows), squeeze=False)
+    fig.patch.set_facecolor("white")
     flat_axes = axes.flatten()
 
     for axis, label in zip(flat_axes, labels):
+        axis.set_facecolor("white")
         subset = df[df["scenario_label"] == label]
         data = [subset.loc[subset["method"] == method, "total_cost"].to_numpy() for method in order]
         axis.boxplot(data, tick_labels=order, showmeans=True)
@@ -608,6 +616,218 @@ def _plot_fixed_stationary_by_case(df: pd.DataFrame, output_path: Path) -> None:
     fig.tight_layout()
     fig.savefig(output_path, dpi=180)
     plt.close(fig)
+
+
+def _plot_promp_significance_heatmap(
+    significance_df: pd.DataFrame,
+    output_path: Path,
+    title: str,
+) -> None:
+    if significance_df.empty:
+        _plot_placeholder(output_path, title, "No significance results were generated.")
+        return
+
+    required_cols = {"environment_mode", "baseline_method", "p_value"}
+    if not required_cols.issubset(significance_df.columns):
+        _plot_placeholder(output_path, title, "Required significance columns are missing.")
+        return
+
+    env_order = [mode for mode in ("stationary", "nonstationary") if mode in set(significance_df["environment_mode"])]
+    method_order = [
+        method
+        for method in cfg.PLOT_METHOD_ORDER
+        if method != "ProMP" and method in set(significance_df["baseline_method"])
+    ]
+    if not env_order or not method_order:
+        _plot_placeholder(output_path, title, "No heatmap rows were available.")
+        return
+
+    heatmap_df = (
+        significance_df.pivot_table(
+            index="baseline_method",
+            columns="environment_mode",
+            values="p_value",
+            aggfunc="first",
+        )
+        .reindex(index=method_order, columns=env_order)
+    )
+
+    fig, ax = plt.subplots(figsize=(1.8 + 2.4 * len(env_order), 2.2 + 0.8 * len(method_order)))
+    fig.patch.set_facecolor("white")
+    ax.set_facecolor("white")
+
+    matrix = heatmap_df.to_numpy(dtype=float)
+    im = ax.imshow(matrix, cmap="viridis_r", vmin=0.0, vmax=1.0, aspect="auto")
+
+    ax.set_xticks(np.arange(len(env_order)))
+    ax.set_xticklabels(env_order)
+    ax.set_yticks(np.arange(len(method_order)))
+    ax.set_yticklabels(method_order)
+    ax.set_xlabel("Environment")
+    ax.set_ylabel("Method Compared Against ProMP")
+    ax.set_title(title)
+
+    for row_idx, method in enumerate(method_order):
+        for col_idx, env_name in enumerate(env_order):
+            value = heatmap_df.loc[method, env_name]
+            label = "NA" if not np.isfinite(value) else f"{value:.3f}"
+            text_color = "white" if np.isfinite(value) and value < 0.5 else "black"
+            ax.text(col_idx, row_idx, label, ha="center", va="center", color=text_color, fontsize=10)
+
+    cbar = fig.colorbar(im, ax=ax)
+    cbar.set_label("p-value")
+    fig.tight_layout()
+    fig.savefig(output_path, dpi=180)
+    plt.close(fig)
+
+
+def _plot_cost_composition(df: pd.DataFrame, output_path: Path, title: str) -> None:
+    if df.empty:
+        _plot_placeholder(output_path, title, "No evaluation rows were generated.")
+        return
+
+    order = [method for method in cfg.PLOT_METHOD_ORDER if method in set(df["method"])]
+    if not order:
+        _plot_placeholder(output_path, title, "No methods available for plotting.")
+        return
+
+    cost_cols = [
+        "holding_cost",
+        "process_cost",
+        "delivery_cost",
+        "order_cost",
+        "shortage_cost",
+    ]
+    pretty_labels = {
+        "holding_cost": "Holding",
+        "process_cost": "Process",
+        "delivery_cost": "Delivery",
+        "order_cost": "Order",
+        "shortage_cost": "Shortage",
+    }
+
+    grouped = df.groupby("method", as_index=False)[cost_cols].mean()
+    grouped = grouped.set_index("method").reindex(order)
+    row_sums = grouped.sum(axis=1).replace(0.0, np.nan)
+    ratio_df = grouped.div(row_sums, axis=0).fillna(0.0)
+
+    fig, ax = plt.subplots(figsize=(10, 6))
+    fig.patch.set_facecolor("white")
+    ax.set_facecolor("white")
+
+    x = np.arange(len(order))
+    bottom = np.zeros(len(order))
+    colors = ["#4C78A8", "#F58518", "#54A24B", "#E45756", "#B279A2"]
+
+    for idx, col in enumerate(cost_cols):
+        values = ratio_df[col].to_numpy()
+        ax.bar(
+            x,
+            values,
+            bottom=bottom,
+            width=0.7,
+            label=pretty_labels[col],
+            color=colors[idx],
+            edgecolor="white",
+            linewidth=0.7,
+        )
+        bottom += values
+
+    ax.set_xticks(x)
+    ax.set_xticklabels(order)
+    ax.set_ylim(0, 1)
+    ax.set_ylabel("Cost Ratio")
+    ax.set_xlabel("Method")
+    ax.set_title(title)
+    ax.grid(axis="y", alpha=0.25)
+    ax.legend(loc="upper right", frameon=True)
+    fig.tight_layout()
+    fig.savefig(output_path, dpi=180)
+    plt.close(fig)
+
+
+def _paired_wilcoxon_promp_vs_method(
+    df: pd.DataFrame,
+    group_cols: Sequence[str],
+) -> pd.DataFrame:
+    if df.empty or "ProMP" not in set(df["method"]):
+        return pd.DataFrame()
+
+    pair_index_cols = list(group_cols)
+    for col in ("scenario_label", "episode_index"):
+        if col not in pair_index_cols:
+            pair_index_cols.append(col)
+
+    pair_cols = pair_index_cols + ["method", "total_cost"]
+    base = df[pair_cols].copy()
+    pivot = (
+        base.pivot_table(
+            index=pair_index_cols,
+            columns="method",
+            values="total_cost",
+            aggfunc="mean",
+        )
+        .reset_index()
+    )
+
+    if "ProMP" not in pivot.columns:
+        return pd.DataFrame()
+
+    methods = [m for m in cfg.PLOT_METHOD_ORDER if m != "ProMP" and m in pivot.columns]
+    rows = []
+    for method in methods:
+        compare_cols = list(group_cols) + ["ProMP", method]
+        subset = pivot[compare_cols].dropna().copy()
+        if subset.empty:
+            continue
+
+        diffs = subset[method] - subset["ProMP"]
+        nonzero_diffs = diffs[np.abs(diffs) > 1e-12]
+
+        p_value = np.nan
+        stat = np.nan
+        if len(nonzero_diffs) > 0:
+            try:
+                res = wilcoxon(nonzero_diffs, zero_method="wilcox", alternative="greater")
+                stat = float(res.statistic)
+                p_value = float(res.pvalue)
+            except ValueError:
+                pass
+
+        for group_key, group_frame in subset.groupby(list(group_cols), dropna=False):
+            if not isinstance(group_key, tuple):
+                group_key = (group_key,)
+            local_diffs = group_frame[method] - group_frame["ProMP"]
+            local_nonzero = local_diffs[np.abs(local_diffs) > 1e-12]
+            local_stat = np.nan
+            local_p = np.nan
+            if len(local_nonzero) > 0:
+                try:
+                    local_res = wilcoxon(local_nonzero, zero_method="wilcox", alternative="greater")
+                    local_stat = float(local_res.statistic)
+                    local_p = float(local_res.pvalue)
+                except ValueError:
+                    pass
+
+            row = {col: value for col, value in zip(group_cols, group_key)}
+            row.update(
+                {
+                    "comparison": f"ProMP vs {method}",
+                    "baseline_method": method,
+                    "n_pairs": int(len(group_frame)),
+                    "promp_mean": float(group_frame["ProMP"].mean()),
+                    "other_mean": float(group_frame[method].mean()),
+                    "mean_diff_other_minus_promp": float(local_diffs.mean()),
+                    "median_diff_other_minus_promp": float(local_diffs.median()),
+                    "promp_better_rate": float((local_diffs > 0).mean()),
+                    "wilcoxon_statistic": local_stat,
+                    "p_value": local_p,
+                    "significant_0_05": bool(np.isfinite(local_p) and local_p < 0.05),
+                }
+            )
+            rows.append(row)
+
+    return pd.DataFrame(rows)
 
 def _save_outputs(df: pd.DataFrame, output_dir: Path, environment_modes: Sequence[str]) -> None:
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -633,6 +853,28 @@ def _save_outputs(df: pd.DataFrame, output_dir: Path, environment_modes: Sequenc
 
     summary_by_environment_method.to_csv(output_dir / "summary_by_environment_method.csv", index=False)
     summary_by_scenario_method.to_csv(output_dir / "summary_by_scenario_method.csv", index=False)
+
+    significance_by_environment = _paired_wilcoxon_promp_vs_method(
+        df,
+        group_cols=["environment_mode"],
+    )
+    significance_by_scenario = _paired_wilcoxon_promp_vs_method(
+        df,
+        group_cols=["environment_mode", "scenario_label"],
+    )
+    significance_by_environment.to_csv(
+        output_dir / "significance_promp_vs_others_by_environment.csv",
+        index=False,
+    )
+    significance_by_scenario.to_csv(
+        output_dir / "significance_promp_vs_others_by_scenario.csv",
+        index=False,
+    )
+    _plot_promp_significance_heatmap(
+        significance_by_environment,
+        output_dir / "significance_promp_vs_others_heatmap.png",
+        "ProMP vs Others: Paired Wilcoxon p-values",
+    )
 
     stationary_df = df[df["environment_mode"] == "stationary"] if not df.empty else df
     nonstationary_df = df[df["environment_mode"] == "nonstationary"] if not df.empty else df
@@ -665,6 +907,25 @@ def _save_outputs(df: pd.DataFrame, output_dir: Path, environment_modes: Sequenc
             "Nonstationary Total Cost Comparison",
         )
 
+    _plot_cost_composition(
+        stationary_df,
+        output_dir / "stationary_cost_composition.png",
+        "Stationary Cost Composition by Method",
+    )
+
+    if nonstationary_df.empty:
+        _plot_placeholder(
+            output_dir / "nonstationary_cost_composition.png",
+            "Nonstationary Cost Composition by Method",
+            "Nonstationary evaluation was not executed.",
+        )
+    else:
+        _plot_cost_composition(
+            nonstationary_df,
+            output_dir / "nonstationary_cost_composition.png",
+            "Nonstationary Cost Composition by Method",
+        )
+
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Compare heuristic, PPO, and ProMP total cost.")
@@ -692,7 +953,7 @@ def main() -> None:
     if cfg.SCENARIO_MODE == "fixed":
         environment_modes = ["stationary"]
 
-    plt.style.use("ggplot")
+    plt.style.use("default")
 
     policy_specs = _build_policy_specs()
     all_rows: List[Dict] = []

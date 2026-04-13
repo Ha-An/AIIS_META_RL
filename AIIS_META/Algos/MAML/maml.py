@@ -204,7 +204,12 @@ class VPG_MAML(MAML_BASE):
             mean_loss_out.backward() # gradients flow through inner_loop to base params
             self.optimizer.step()
     
-    def _theta_prime(self, batch: dict, params: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
+    def _theta_prime(
+        self,
+        batch: dict,
+        params: Dict[str, torch.Tensor],
+        create_graph: bool = True,
+    ) -> Dict[str, torch.Tensor]:
             """
             ... (comments omitted) ...
             """
@@ -213,7 +218,7 @@ class VPG_MAML(MAML_BASE):
             grads = torch.autograd.grad(
                 surr,
                 list(params.values()),
-                create_graph=True
+                create_graph=create_graph
             )
             
             adapted_params = OrderedDict()
